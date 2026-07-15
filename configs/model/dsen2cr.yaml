@@ -6,3 +6,7 @@ out_channels: 13  # clear S2
 num_blocks: 16    # residual blocks (paper: B=16)
 features: 256     # feature width (paper: F=256)
 res_scale: 0.1    # residual scaling inside blocks (EDSR-style, as in the paper)
+
+loss:
+  name: carl
+  lambda_reg: 1.0  # global L1 term weight; original implementation uses 1.0
