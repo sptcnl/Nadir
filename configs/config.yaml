@@ -1,0 +1,21 @@
+# Root Hydra config. Compose with group configs; override on the CLI, e.g.:
+#   python -m nadir.train +experiment=dsen2cr_dummy train.epochs=2
+defaults:
+  - data: sen12mscr
+  - model: dsen2cr
+  - train: default
+  - _self_
+
+seed: 42
+device: cuda  # "cuda" | "cpu"; falls back to cpu automatically if cuda is unavailable
+
+paths:
+  # Root directory holding datasets. Override via env var or CLI.
+  data_dir: ${oc.env:NADIR_DATA_DIR,data}
+
+wandb:
+  project: nadir
+  entity: null  # default entity of the logged-in account
+  mode: online  # "online" | "offline" | "disabled"
+  tags: []
+  notes: null

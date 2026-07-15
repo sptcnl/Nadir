@@ -1,0 +1,61 @@
+[project]
+name = "nadir"
+version = "0.1.0"
+description = "SAR-conditioned diffusion for cloud removal in Sentinel-2 imagery (Phase 1: infra + CNN baseline)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "sptcnl", email = "sptcnl@gmail.com" }]
+
+dependencies = [
+    "torch>=2.4",
+    "numpy>=1.26",
+    "hydra-core>=1.3",
+    "omegaconf>=2.3",
+    "wandb>=0.17",
+    "rasterio>=1.3",
+    "scikit-image>=0.24",
+    "lpips>=0.1.4",
+    "tqdm>=4.66",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# CUDA wheels for torch on Windows/Linux (pip users: install torch with
+# `pip install torch --index-url https://download.pytorch.org/whl/cu126` first).
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu126", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ANN"]
+ignore = ["ANN101", "ANN102"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true

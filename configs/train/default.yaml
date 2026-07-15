@@ -1,0 +1,19 @@
+# Training loop settings (Step 6). Conservative defaults for a single 16GB GPU.
+epochs: 100
+batch_size: 4
+lr: 7.0e-5           # DSen2-CR paper uses 7e-5 with Adam
+optimizer: adam
+weight_decay: 0.0
+grad_clip: null       # max grad norm; null disables
+
+amp: true             # bf16 autocast
+grad_checkpointing: false
+
+checkpoint:
+  dir: checkpoints
+  every_epochs: 1
+  resume: null        # path to a checkpoint to resume from
+
+log:
+  every_steps: 50
+  image_grid_samples: 4  # samples per epoch logged as SAR/cloudy/pred/GT grid

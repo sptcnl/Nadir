@@ -1,0 +1,29 @@
+# SEN12MS-CR triplets: Sentinel-1 (VV/VH) + cloudy Sentinel-2 + clear Sentinel-2.
+# Dataset/preprocessing parameters are filled in at Step 3; values here are the
+# authoritative physical constants used across the whole pipeline.
+name: sen12mscr
+root: ${paths.data_dir}/sen12mscr
+
+patch_size: 256
+
+# Sentinel-1 (dB scale). Clip range per Meraner et al. (DSen2-CR) preprocessing.
+s1:
+  channels: 2  # [VV, VH]
+  clip_db: [-25.0, 0.0]
+
+# Sentinel-2 L1C, 13 bands, reflectance stored as uint16 scaled by 10000.
+s2:
+  channels: 13
+  reflectance_scale: 10000.0
+
+split:
+  # Geographic split by ROI id to prevent spatial leakage between train/val/test.
+  strategy: roi
+  val_fraction: 0.1
+  test_fraction: 0.1
+  split_seed: 42
+
+loader:
+  batch_size: ${train.batch_size}
+  num_workers: 4
+  pin_memory: true

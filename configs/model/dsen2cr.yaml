@@ -1,0 +1,8 @@
+# DSen2-CR baseline (Meraner et al., ISPRS 2020): SAR-guided residual CNN.
+# Architecture hyperparameters follow the paper; implemented at Step 4.
+name: dsen2cr
+in_channels: 15   # 2 (S1 VV/VH) + 13 (cloudy S2)
+out_channels: 13  # clear S2
+num_blocks: 16    # residual blocks (paper: B=16)
+features: 256     # feature width (paper: F=256)
+res_scale: 0.1    # residual scaling inside blocks (EDSR-style, as in the paper)
