@@ -16,6 +16,18 @@ s2:
   channels: 13
   reflectance_scale: 10000.0
 
+# Cloud mask (3-class: thin/thick/shadow). Threshold heuristic for Phase 1;
+# TODO(Step 5/7): replace with s2cloudless (see nadir/data/cloud_mask.py).
+mask:
+  impl: threshold
+  thin: 0.35    # mean visible reflectance above which a pixel is thin cloud
+  thick: 0.6    # ... thick cloud
+  shadow: 0.08  # ... below which a pixel is cloud shadow
+
+# Geometric-only augmentation (flip/rot90) on the train split.
+# Color augmentations are forbidden: reflectance is a physical quantity.
+augment: true
+
 split:
   # Geographic split by ROI id to prevent spatial leakage between train/val/test.
   strategy: roi

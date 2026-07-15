@@ -8,12 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import wandb
 from omegaconf import DictConfig, OmegaConf
 
-import wandb
 
-
-def init_wandb(cfg: DictConfig) -> "wandb.sdk.wandb_run.Run | None":
+def init_wandb(cfg: DictConfig) -> wandb.sdk.wandb_run.Run | None:
     """Initialise a W&B run from the Hydra config.
 
     Returns None when mode is "disabled" so callers can guard logging calls
@@ -33,7 +32,7 @@ def init_wandb(cfg: DictConfig) -> "wandb.sdk.wandb_run.Run | None":
     return run
 
 
-def log_metrics(run: "wandb.sdk.wandb_run.Run | None", metrics: dict[str, Any], step: int) -> None:
+def log_metrics(run: wandb.sdk.wandb_run.Run | None, metrics: dict[str, Any], step: int) -> None:
     """Log a metrics dict if a run is active; no-op otherwise."""
     if run is not None:
         run.log(metrics, step=step)

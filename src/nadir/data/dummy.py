@@ -118,6 +118,15 @@ def _write_tif(path: Path, array: np.ndarray, transform: rasterio.Affine) -> Non
         dst.write(array)
 
 
+def _patch_path(out_dir: Path, season: str, modality: str, scene: int, patch: int) -> Path:
+    return (
+        out_dir
+        / f"{season}_{modality}"
+        / f"{modality}_{scene}"
+        / f"{season}_{modality}_{scene}_p{patch}.tif"
+    )
+
+
 def generate(cfg: DummyConfig) -> list[Path]:
     """Generate the dummy dataset; returns the list of written S1 paths."""
     rng = np.random.default_rng(cfg.seed)
@@ -135,16 +144,11 @@ def generate(cfg: DummyConfig) -> list[Path]:
             cloudy = _make_s2_cloudy(rng, clear, alpha)
             s1 = _make_s1(rng, cfg.size)
 
-            def _path(modality: str) -> Path:
-                return (
-                    cfg.out_dir
-                    / f"{season}_{modality}"
-                    / f"{modality}_{scene}"
-                    / f"{season}_{modality}_{scene}_p{patch}.tif"
-                )
-
-            _write_tif(_path("s1"), s1, transform)
-            _write_tif(_path("s2"), clear, transform)
-            _write_tif(_path("s2_cloudy"), cloudy, transform)
-            written.append(_path("s1"))
+            s1_path = _patch_path(cfg.out_dir, season, "s1", scene, patch)
+            _write_tif(s1_path, s1, transform)
+            _write_tif(_patch_path(cfg.out_dir, season, "s2", scene, patch), clear, transform)
+            _write_tif(
+                _patch_path(cfg.out_dir, season, "s2_cloudy", scene, patch), cloudy, transform
+            )
+            written.append(s1_path)
     return written
