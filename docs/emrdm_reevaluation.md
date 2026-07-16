@@ -127,10 +127,30 @@ survive. After each arm completes: `fstrim` + vhdx compact
 (`protocol.md` §9.2) so the 60 GB-class intermediates never become resident
 vhdx growth.
 
-### 7.1 Environment build log (Step 1 — to be filled during execution)
+### 7.1 Environment build log (Step 1 — executed 2026-07-16)
 
-*(records every install attempt including failures, per the EO-VAE probe
-precedent)*
+**Outcome: SUCCESS with zero source compilation.** The feared
+flash_attn/natten build risk did not materialize — every pinned package had
+a prebuilt Linux wheel. Environment: WSL2 Ubuntu-24.04, venv at
+`~/emrdm/venv` (Python 3.11.15 via uv), EMRDM repo at `~/emrdm/EMRDM`.
+Footprint: venv 7.2 GB + repo 33 MB; vhdx grew 2.3 → 9.6 GB.
+
+| # | Attempt | Result |
+|---|---|---|
+| 1 | `nvidia-smi` inside WSL2 | ✓ RTX 4080 visible, driver 591.86 (CUDA 13.1 capable — cu121 wheels bundle their own runtime, backward-compatible) |
+| 2 | Inline `wsl -- bash -lc "..."` setup one-liner | **FAILED** — PowerShell string interpolation mangled `$HOME`/semicolons. Lesson: all WSL provisioning goes through `.sh` script files, never inline quoting |
+| 3 | `torch==2.2.1+cu121` + `torchvision==0.17.1+cu121` (pytorch cu121 index) | ✓ `TORCH_OK 2.2.1+cu121 True NVIDIA GeForce RTX 4080`; NumPy-2 ABI warning observed → pin `numpy==1.26.4` next |
+| 4 | `flash_attn==2.5.9.post1` prebuilt wheel `cu122torch2.2cxx11abiFALSE-cp311` from the official GitHub release (cu122 kernels on cu121 torch runtime: both CUDA 12.x, compatible; torch 2.2 manylinux wheels are pre-cxx11 ABI) | ✓ `FLASH_ATTN_OK 2.5.9.post1` |
+| 5 | `natten==0.17.1+torch220cu121` from `shi-labs.com/natten/wheels` | **FAILED** — the wheel host's TLS certificate expired 2025-12-03 (verified in the error: cert not valid after UNIX 1764806399). Did NOT bypass TLS |
+| 6 | Same wheel from the official SHI-Labs/NATTEN GitHub release v0.17.1 | ✓ `NATTEN_OK 0.17.1` (451 MB wheel) |
+| 7 | `pytorch-lightning==2.3.3` import | **FAILED** — `pkg_resources` missing: setuptools ≥ 81 removed it (2026 reality); lightning 2.3.3 still imports it | 
+| 8 | `setuptools<81` | ✓ `LIGHTNING_OK 2.3.3` (deprecation warning acknowledged) |
+| 9 | `import sgm` iterative dependency discovery (EMRDM's own pins from its requirements.txt) | ✓ after installing `dctorch==0.1.2`, `pandas==2.2.3`, `opencv-python-headless==4.10.0.84`, `matplotlib==3.9.2` → `SGM_OK` |
+
+Not installed (deliberately): the full requirements.txt (README warns
+against it), realesrgan/sdata editable extras, anything training-only.
+Missing pieces, if any, surface at Step 2 (weight load + smoke inference)
+and get appended to this table.
 
 ## 8. Results
 
