@@ -13,6 +13,9 @@ paths:
   # Root directory holding datasets. Override via env var or CLI.
   data_dir: ${oc.env:NADIR_DATA_DIR,data}
 
+# Checkpoint path consumed by `python -m nadir.eval checkpoint=...`.
+checkpoint: null
+
 eval:
   # LPIPS backbone; null disables LPIPS (e.g. for offline CI without the
   # torchvision weight download). RGB extraction: B04/B03/B02 = indices 3/2/1.

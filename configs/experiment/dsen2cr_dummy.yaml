@@ -1,0 +1,24 @@
+# @package _global_
+# Smoke-test experiment: full DSen2-CR on the synthetic dummy dataset.
+# Proves the pipeline end-to-end (data -> model -> CARL -> metrics -> W&B).
+#
+#   python scripts/make_dummy_data.py        # once
+#   python -m nadir.train +experiment=dsen2cr_dummy
+
+data:
+  root: ${paths.data_dir}/sen12mscr_dummy
+  loader:
+    num_workers: 0  # tiny dataset; skip Windows worker-spawn overhead
+
+train:
+  epochs: 2
+  batch_size: 2
+  log:
+    every_steps: 5
+    image_grid_samples: 4
+
+eval:
+  lpips_net: squeeze  # small backbone for smoke runs; use alex for real eval
+
+wandb:
+  tags: [dummy, smoke]
