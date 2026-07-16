@@ -13,6 +13,11 @@ paths:
   # Root directory holding datasets. Override via env var or CLI.
   data_dir: ${oc.env:NADIR_DATA_DIR,data}
 
+eval:
+  # LPIPS backbone; null disables LPIPS (e.g. for offline CI without the
+  # torchvision weight download). RGB extraction: B04/B03/B02 = indices 3/2/1.
+  lpips_net: alex
+
 wandb:
   project: nadir
   entity: null  # default entity of the logged-in account
