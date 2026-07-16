@@ -71,3 +71,39 @@ def test_extract_all_when_no_subset(tmp_path: Path) -> None:
     _make_archive(archive)
     out = tmp_path / "out"
     assert dl.extract(archive, out, scenes=None) == 3
+
+
+def test_canonical_test_split_matches_uncrtaints() -> None:
+    # Must stay identical to the EMRDM/UnCRtainTS loader's hardcoded test list
+    # (sgm/data/sentinel/sentinel.py): 10 scenes across all four seasons.
+    assert dl.TEST_SPLIT == {
+        "spring": (31, 44, 106, 123, 140),
+        "summer": (73, 119),
+        "fall": (139,),
+        "winter": (63, 108),
+    }
+    assert sum(len(v) for v in dl.TEST_SPLIT.values()) == 10
+    assert set(dl.TEST_SPLIT) == set(dl.SEASONS)
+
+
+def test_stream_extract_scene_subset(tmp_path: Path) -> None:
+    # stream_extract must behave like extract() given the same filter; feed it
+    # a local file object instead of an HTTP response.
+    archive = tmp_path / "ROIs1158_spring_s1.tar.gz"
+    _make_archive(archive)
+    out = tmp_path / "out"
+
+    class _FakeResponse:
+        def __init__(self, path: Path) -> None:
+            self._fh = open(path, "rb")
+
+        def read(self, n: int = -1) -> bytes:
+            return self._fh.read(n)
+
+    import unittest.mock as mock
+
+    with mock.patch.object(dl.urllib.request, "urlopen", return_value=_FakeResponse(archive)):
+        n = dl.stream_extract("ROIs1158_spring_s1.tar.gz", out, scenes={2})
+    assert n == 1
+    assert (out / "ROIs1158_spring_s1" / "s1_2").exists()
+    assert not (out / "ROIs1158_spring_s1" / "s1_1").exists()

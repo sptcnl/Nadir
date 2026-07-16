@@ -19,8 +19,9 @@ Granularity:
 
 Examples:
     python scripts/download_data.py --list
+    python scripts/download_data.py --split test              # canonical test split, streamed
     python scripts/download_data.py --seasons spring --scenes 1 8 17
-    python scripts/download_data.py --seasons spring summer
+    python scripts/download_data.py --seasons spring summer --stream
     python scripts/download_data.py --all          # full dataset, explicit
 """
 
@@ -42,6 +43,17 @@ SEASONS: dict[str, str] = {
     "winter": "ROIs2017_winter",
 }
 MODALITIES = ("s1", "s2", "s2_cloudy")
+
+# Canonical UnCRtainTS/EMRDM test split (geographically held out), extracted
+# from the released EMRDM loader (sgm/data/sentinel/sentinel.py, identical to
+# the UnCRtainTS split): 10 scenes across all four seasons. DB-CR reports
+# 7,899 test patches for this split.
+TEST_SPLIT: dict[str, tuple[int, ...]] = {
+    "spring": (31, 44, 106, 123, 140),
+    "summer": (73, 119),
+    "fall": (139,),
+    "winter": (63, 108),
+}
 
 _CHUNK = 1 << 20  # 1 MiB
 
@@ -94,6 +106,32 @@ def member_scene(name: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def stream_extract(archive: str, out_dir: Path, scenes: set[int] | None) -> int:
+    """Stream an archive over HTTPS and extract matching members WITHOUT
+    storing the .tar.gz on disk.
+
+    Rationale: the server only offers whole-season archives (8-49 GB each),
+    so a scene subset still costs the full archive in *transfer* — but with
+    streaming it costs only the extracted patches in *disk*. No resume:
+    a failed stream restarts from zero for that archive.
+    """
+    response = urllib.request.urlopen(urllib.request.Request(BASE_URL + archive))
+    extracted = 0
+    # r|gz = non-seekable stream mode; members must be extracted while iterating.
+    with tarfile.open(fileobj=response, mode="r|gz") as tar:
+        for member in tar:
+            scene = member_scene(member.name)
+            if scenes is not None and scene is not None and scene not in scenes:
+                continue
+            tar.extract(member, out_dir, filter="data")
+            if member.isfile():
+                extracted += 1
+                if extracted % 500 == 0:
+                    print(f"  {archive}: {extracted} files extracted", flush=True)
+    print(f"{archive}: streamed, extracted {extracted} files -> {out_dir}")
+    return extracted
+
+
 def extract(archive_path: Path, out_dir: Path, scenes: set[int] | None) -> int:
     """Unpack an archive; when `scenes` is given, only those ROIs are extracted."""
     extracted = 0
@@ -134,6 +172,20 @@ def main() -> None:
     parser.add_argument(
         "--skip-extract", action="store_true", help="download archives only, do not unpack"
     )
+    parser.add_argument(
+        "--split",
+        choices=["test"],
+        default=None,
+        help="download a canonical split: 'test' = the UnCRtainTS/EMRDM held-out"
+        " scenes (all seasons, per-season scene filter). Implies --stream unless"
+        " archives are kept explicitly.",
+    )
+    parser.add_argument(
+        "--stream",
+        action="store_true",
+        help="stream archives and extract on the fly without storing .tar.gz"
+        " (transfer cost unchanged; disk cost = extracted patches only)",
+    )
     args = parser.parse_args()
 
     if args.list:
@@ -142,17 +194,30 @@ def main() -> None:
                 print(BASE_URL + archive)
         return
 
-    seasons = sorted(SEASONS) if args.all else args.seasons
-    if not seasons:
-        parser.error("pass --seasons (subset) or --all (full >100 GB download), or --list")
+    # Per-season scene filters. --split test uses the canonical per-season map
+    # (a flat scene-id set would bleed across seasons: e.g. scene 73 is a test
+    # scene in summer but a training scene id may collide in another season).
+    plan: dict[str, set[int] | None]
+    if args.split == "test":
+        plan = {season: set(scenes) for season, scenes in TEST_SPLIT.items()}
+    else:
+        seasons = sorted(SEASONS) if args.all else args.seasons
+        if not seasons:
+            parser.error(
+                "pass --seasons (subset), --split test, --all (full download), or --list"
+            )
+        scenes = set(args.scenes) if args.scenes else None
+        plan = {season: scenes for season in seasons}
 
     archive_dir = args.archive_dir or (args.out / "_archives")
-    scenes = set(args.scenes) if args.scenes else None
-    for season in seasons:
+    for season, season_scenes in plan.items():
         for archive in archive_names(season):
-            path = download(archive, archive_dir)
-            if not args.skip_extract:
-                extract(path, args.out, scenes)
+            if args.stream or args.split == "test":
+                stream_extract(archive, args.out, season_scenes)
+            else:
+                path = download(archive, archive_dir)
+                if not args.skip_extract:
+                    extract(path, args.out, season_scenes)
 
     # The dataset class scans <out>/*_s1/s1_*/*.tif; fail loudly here rather
     # than late in training if the archive layout ever changes upstream.
