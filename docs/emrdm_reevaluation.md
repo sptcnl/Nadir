@@ -40,9 +40,23 @@ released test config.
 | SAM | 5.267° | ± 0.05° | table rounding (3 dp) |
 | MAE | 0.018 | ± 0.001 | table rounding (3 dp) |
 
-Additionally, EMRDM's released artifacts include their own test logs; if
-those logs contain the measured values, Arm A must match the *logs* to
-their printed precision (stricter than the table check).
+Additionally, EMRDM's released artifacts include their own test log
+(`test/sentinel/testtube/version_0/metrics.csv`, retrieved 2026-07-16) with
+the measured values at full precision. **These are the primary Arm A
+targets** (the paper table is these rounded to 2–3 decimals — consistency
+verified):
+
+| Metric | Their log value | Paper table |
+|---|---|---|
+| MAE | 0.018326831981539726 | 0.018 |
+| PSNR | 32.13542556762695 | 32.14 |
+| RMSE | 0.028028929606080055 | (not in table) |
+| SAM | 5.266563415527344 | 5.267 |
+| SSIM | 0.9244527220726013 | 0.924 |
+
+Context columns in the same log: `raw_PSNR 18.14 / raw_SAM 13.37 /
+raw_SSIM 0.659` — the cloudy-input-vs-target baseline, i.e. what "no model
+at all" scores. Useful sanity anchor for our harness.
 
 **Gate: if any Arm A metric lands outside tolerance, Arm B does not run.**
 An out-of-tolerance Arm A means our harness (env, data extraction, weight
@@ -146,6 +160,7 @@ Footprint: venv 7.2 GB + repo 33 MB; vhdx grew 2.3 → 9.6 GB.
 | 7 | `pytorch-lightning==2.3.3` import | **FAILED** — `pkg_resources` missing: setuptools ≥ 81 removed it (2026 reality); lightning 2.3.3 still imports it | 
 | 8 | `setuptools<81` | ✓ `LIGHTNING_OK 2.3.3` (deprecation warning acknowledged) |
 | 9 | `import sgm` iterative dependency discovery (EMRDM's own pins from its requirements.txt) | ✓ after installing `dctorch==0.1.2`, `pandas==2.2.3`, `opencv-python-headless==4.10.0.84`, `matplotlib==3.9.2` → `SGM_OK` |
+| 10 | `ResidualDiffusionEngine` init (Step 2b) | needed `lpips==0.1.4` (their metrics module) → engine loads |
 
 Not installed (deliberately): the full requirements.txt (README warns
 against it), realesrgan/sdata editable extras, anything training-only.
@@ -198,6 +213,56 @@ defaults, because upstream defaults are what produced the paper's numbers;
 strict-fp32 arm is ever needed.
 
 **Verdict: Step 2a gate PASSED — wheel combination approved for Arm A.**
+
+### 7.3 Weights + dummy smoke (Step 2b — executed 2026-07-16)
+
+**Provenance.** Downloaded from the official EMRDM release Drive folder
+(README → `drive.google.com/drive/folders/1T3OwRNP5r5qVLQZujnl2WDBVXHC1Am65`,
+file `train/sentinel/checkpoints/last.ckpt`, Drive id
+`1bPU1HzxRQmMXsrWFg2Z8W1bBGdhrlWeD`, Drive mtime 2025-03-28). No official
+checksum is published; **our received hash is the record**:
+
+```
+sha256(last.ckpt) = edf7b5d1ef35aea27f0e33c7ff048dc6d053c0382615f9513dfe3ebb9091ecda
+size = 626,349,094 bytes
+```
+
+Also retrieved (same folder, hashes in `~/emrdm/artifacts/sentinel/SHA256SUMS`):
+their exact test config (`test/sentinel/configs/2025-03-11T11-11-46-project.yaml`),
+test metrics log (§3), hparams, and the training config. Extra dep
+discovered at engine init: `lpips==0.1.4` (their metrics module imports it)
+— appended to the §7.1 environment.
+
+**Smoke result (synthetic batch, zero data, quality deliberately not
+assessed — 8.6σ lesson from the EO-VAE probe):**
+
+```
+Restored from artifacts/sentinel/last.ckpt with 0 missing and 0 unexpected keys
+ENGINE_LOADED params=39.1M sampler=ResidualEulerEDMSampler num_steps=5
+OUTPUT shape=(1, 13, 256, 256) dtype=torch.float32 range=(-2.203,3.210) finite=True
+SMOKE_OK
+```
+
+**Inference recipe extracted from code (for Arm A):**
+- Entrypoints: `python main.py --base configs/example_training/sentinel.yaml
+  --enable_tf32 -t false` (test metrics) and `... --no-test true --predict
+  true` (writes per-patch .tif predictions + metrics.csv; asserts batch=1).
+- Engine `ResidualDiffusionEngine`: `input_key: target`, **`mean_key: S2`**
+  — the cloudy image is the mean-reverting anchor. `use_ema: true`
+  (predict runs under EMA weights; ckpt carries 121 EMA tensors).
+  Notably `use_flash_attn2: false` in the sentinel config — flash_attn is
+  not exercised by this model; the §7.2 validation stands as environment
+  insurance.
+- Conditioning: `IndentityEmbedder` on batch key `S1S2` (2ch SAR + 13ch
+  cloudy, all in [-1,1]) → `CloudRemovalWrapper` concats onto the noisy
+  target → denoiser `ImageTransformerDenoiserModelInterface` (k-diffusion
+  image transformer; 28→13 ch; neighborhood attention k=7 at the two
+  high-res levels — natten — and global attention below).
+- Sampler: `ResidualEulerEDMSampler`, **num_steps=5**, EDM
+  preconditioning (`ResidualEDMScaling`, sigma_input=sigma_mu=1.0).
+- Preprocessing entrypoint: `SEN12MSCRInterface` (rescale=True → all
+  tensors mapped [0,1]→[-1,1]; `rescale_method='default'`; test-time
+  `cloud_masks: None`).
 
 ## 8. Results
 
