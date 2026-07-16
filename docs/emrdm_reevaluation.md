@@ -108,14 +108,29 @@ the attention kernels if the config allows, and if *that* changes outputs,
 Arm A is invalid on this machine and needs a Linux box — recorded before
 execution rather than discovered silently.
 
-## 7. Current blocker: disk
+## 7. Execution environment: local WSL2 (decided 2026-07-16)
 
-This machine has a single drive with **~14 GB free**. Requirements:
-test-split rasters ~31 GB + predictions ~13 GB + working headroom ⇒
-**≥ 60 GB free needed for this deliverable alone** (Phase-2 training subset
-will need ~150 GB+ on top). Options: free space, add a drive, or point
-`NADIR_DATA_DIR` at external storage. Waiting on that decision; nothing
-here runs until it lands.
+All earlier cloud-volume premises are discarded. Execution is local:
+RTX 4080 16 GB, Windows 11 Home + WSL2 Ubuntu-24.04, single C: drive with
+252 GB free at start. Full facts, vhdx cap (1 TB, measured), ext4-only data
+rule, reclaim procedure, and the disk budget table live in
+`protocol.md` §9. Running Arm A under WSL2 (Linux userland) also removes
+the flash_attn/natten Windows-build risk from the reproduction verdict.
+
+Prediction lifecycle (binding): predictions are a deletable intermediate.
+Per scene: EMRDM venv infers → writes uint16 DN predictions → the metric
+harness consumes them → per-patch metric records (JSON/CSV) are appended →
+raster predictions for that scene are deleted before the next scene runs.
+Peak prediction footprint stays ≤ ~4 GB. Only metric tables and a small
+fixed visualization set (16 patches, chosen by seeded sample at the start)
+survive. After each arm completes: `fstrim` + vhdx compact
+(`protocol.md` §9.2) so the 60 GB-class intermediates never become resident
+vhdx growth.
+
+### 7.1 Environment build log (Step 1 — to be filled during execution)
+
+*(records every install attempt including failures, per the EO-VAE probe
+precedent)*
 
 ## 8. Results
 

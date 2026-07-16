@@ -49,6 +49,30 @@ Basis labels:
 | Real-data split | **the canonical UnCRtainTS scene split** (10 test scenes: spring 31/44/106/123/140, summer 73/119, fall 139, winter 63/108) | [convention] adopted verbatim for cross-paper comparability — our seeded ROI split (Phase 1) applies to dummy data and any data without a canonical split |
 | Dummy-data split | seeded deterministic ROI shuffle, val/test ≥ 1 ROI | [choice] Phase-1 infrastructure |
 
+### 4.1 Phase-2 real-data scene selection — FIXED (single-transfer commitment)
+
+The TUM server distributes only whole-season archives; every scene choice
+below is extracted during **one** 292 GB streaming pass. **Changing this
+list later means re-transferring 292 GB.** Fixed on 2026-07-16.
+
+Selection rule [choice]: from the canonical UnCRtainTS *train* scene lists
+(155 scenes), 7 scenes per season (season-balanced 25/25/25/25), drawn with
+`random.Random(42).sample(sorted(scenes), 7)` per season — seeded sampling
+rather than first-N to avoid any ordering/geography correlation in scene
+ids. Validation: 1 scene per season from the canonical *val* list, same
+rule. Geographic separation from the test ROIs is inherited from the
+canonical split (train/val/test scene sets are disjoint distinct ROIs).
+
+| Split | Scenes | Expected patches* |
+|---|---|---|
+| train subset | spring 6, 15, 39, 97, 101, 119, 147 · summer 7, 36, 40, 72, 76, 87, 143 · fall 3, 22, 35, 37, 40, 119, 134 · winter 8, 25, 42, 59, 61, 104, 146 (28 scenes) | ~19.5k (28 × ~698 avg) |
+| val subset | spring 17 · summer 17 · fall 65 · winter 22 (4 scenes) | ~2.8k |
+| test | canonical 10 scenes (§4) | 7,899 per DB-CR |
+
+*Patch counts per scene are unknown before extraction (dataset average
+698 = 122,218/175); actual counts get recorded in the download manifest.
+The ~20k target is met in expectation, not guaranteed per-scene.
+
 ## 5. Augmentation
 
 | Constant | Value | Basis |
@@ -86,3 +110,60 @@ Basis labels:
 
 Each item either gets measured when it becomes load-bearing, or stays on
 this list. Removing an item without a measurement is not allowed.
+
+## 9. Infrastructure (local — supersedes all earlier cloud premises)
+
+Execution environment, fixed 2026-07-16: **local machine only.**
+
+| Fact | Value (measured, not assumed) |
+|---|---|
+| GPU | RTX 4080 16 GB (Ada; bf16 native) |
+| Host | Windows 11 Home 26200, single C: drive, 953 GB total |
+| WSL | 2.3.26.0, kernel 5.15.167.4-1, distro Ubuntu-24.04 |
+| vhdx path | `C:\Users\kimma\AppData\Local\Packages\CanonicalGroupLimited.Ubuntu24.04LTS_79rhkp1fndgsc\LocalState\ext4.vhdx` |
+| vhdx current size | 2.3 GB (fresh distro) |
+| **vhdx max cap** | **1 TB** (measured: ext4 root fs = 1007 GB) — the old 256 GB WSL default does NOT apply here; no expansion needed |
+
+Rules:
+
+1. **All dataset/prediction IO happens inside ext4** (e.g.
+   `~/data/sen12mscr`). `/mnt/c/` is 9p-mounted and is a dataloader
+   bottleneck; placing data there is forbidden. The Windows-side repo can
+   stay on C:; only bulk data must be ext4-resident.
+2. **vhdx never shrinks by itself.** Deleting 60 GB inside ext4 returns
+   nothing to C: until compacted. Reclaim procedure (Windows 11 Home — no
+   Hyper-V `Optimize-VHD`):
+   ```
+   (inside WSL)   sudo fstrim -a
+   (Windows)      wsl --shutdown
+                  diskpart
+                    select vdisk file="<ext4.vhdx path above>"
+                    attach vdisk readonly
+                    compact vdisk
+                    detach vdisk
+   ```
+   Alternative: sparse vhdx (`wsl --manage Ubuntu-24.04 --set-sparse true`)
+   reclaims automatically; requires `wsl --shutdown` first (attempted
+   2026-07-16, blocked by running docker-desktop — pending user approval).
+   Every bulk-deletion step in the pipelines below ends with a reclaim.
+3. **C: usage must stay under 90 % (≤ 858 GB used / ≥ 95 GB free).**
+
+Disk budget (C: at 700 GB used / 252 GB free before this project's data):
+
+| Item (ext4-resident) | Size est. |
+|---|---|
+| WSL base + EMRDM env (torch, flash-attn, natten; incl. pip caches) | ~17 GB |
+| EMRDM repo + SEN12MS-CR weights | ~3 GB |
+| Test split rasters (10 scenes, 7,899 patches) | ~31 GB |
+| Train subset rasters (28 scenes, ~19.5k patches) | ~78 GB |
+| Val subset rasters (4 scenes, ~2.8k patches) | ~11 GB |
+| Prediction chunk (per-scene generate→eval→delete, peak) | ~4 GB |
+| Logs/manifests/headroom | ~5 GB |
+| **Peak total (end of full streaming pass + Arm A inference)** | **~149 GB** |
+
+Peak C: usage = 700 + 149 ≈ **849 GB = 89.1 %** — under the 90 % line with
+~9 GB margin. This margin is thin; mitigations if Windows-side usage grows:
+purge pip caches (−4 GB), enable sparse vhdx, or trim the val subset. The
+peak occurs at the end of the single streaming pass (all splits extracted)
+during Arm A inference; after Arm A, predictions are deleted and the vhdx
+compacted.
