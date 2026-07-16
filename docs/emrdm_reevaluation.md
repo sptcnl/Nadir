@@ -58,6 +58,52 @@ Context columns in the same log: `raw_PSNR 18.14 / raw_SAM 13.37 /
 raw_SSIM 0.659` — the cloudy-input-vs-target baseline, i.e. what "no model
 at all" scores. Useful sanity anchor for our harness.
 
+### 3.1 Step-3 gates (pre-registered BEFORE any measurement; committed first)
+
+**3a — granularity of their released metrics log (inspected 2026-07-16):**
+`test-metrics.csv` is **aggregate-only**: 2 lines (header + one row), 26
+columns, no patch or scene identifiers — a Lightning epoch-level log.
+Per-patch comparison against their run is therefore impossible; Step 3
+validates the pipeline via the gates below. Side-finding for §5.1: the file
+has `final_MAE_cloudfree` / `final_MAE_cloudy` columns — their code
+supports mask-split metrics (`img_metrics(masks=...)`) — but they are NaN
+because the released test config sets `cloud_masks: None`. The mask-split
+capability existed and was switched off in the published evaluation.
+
+**3b — no-model harness gate (runs BEFORE any inference):**
+For every patch of winter scene 63, compute cloudy-vs-clear ("raw")
+metrics twice: (i) EMRDM's own pipeline (their `process_MS`/`process_SAR`
+preprocessing + their `img_metrics`, in the emrdm venv), (ii) Nadir's
+harness (our preprocessing + our metric suite, in the main venv), with
+per-patch results exchanged as files. Declared per-patch tolerances:
+
+| Metric | Tolerance | Basis |
+|---|---|---|
+| SAM | ≤ 0.01° | identical formula; fp32-vs-fp64 acos noise |
+| PSNR | ≤ 0.01 dB | identical formula (20·log10(1/RMSE)) |
+| MAE | ≤ 1e-5 | identical formula |
+| RMSE | ≤ 1e-5 | identical formula (ad-hoc in our compare script) |
+| SSIM | **not gated** — measured & recorded; sanity bound ≤ 0.05 | different implementations by design: theirs `pytorch_ssim` (gaussian 11×11), ours skimage (uniform 7×7). The delta itself is a B2-type datum |
+
+Gate passes only if SAM/PSNR/MAE/RMSE are within tolerance for **every**
+patch. Failure ⇒ the harness (data loading, preprocessing, or metric
+implementation) is wrong; no inference runs until it is fixed.
+Scene-63 raw values are NOT compared against the full-test-set
+`raw_SAM 13.37` (different sample); that comparison only becomes valid at
+Step 5 over all 7,899 patches.
+
+**3c — TF32 sensitivity (measured, not assumed):**
+EMRDM's README test command passes `--enable_tf32`, so their published
+numbers presumably ran TF32-on — but the GPU model is undeclared and TF32
+behavior is architecture-dependent. On winter scene 63, run their full
+inference twice: (i) TF32 on (their flag + natten defaults), (ii) TF32 off
+(`torch.backends` flags off + `natten.disable_tf32()`), same seed, and
+record per-metric deltas. Decision rule (pre-registered): if |ΔSAM| <
+0.05° (the Arm A tolerance), TF32 is immaterial — keep defaults and close;
+if ≥ 0.05°, that is a finding of the §5.1 kind (an undeclared numerics
+setting that moves reported metrics ⇒ hardware-dependent reproducibility),
+to be added to §5.1 and declared as a [choice] in protocol.md.
+
 **Gate: if any Arm A metric lands outside tolerance, Arm B does not run.**
 An out-of-tolerance Arm A means our harness (env, data extraction, weight
 loading, or run configuration) is wrong — that gets debugged and documented;
