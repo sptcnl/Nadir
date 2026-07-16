@@ -100,6 +100,7 @@ since EMRDM's paper defers preprocessing to an appendix:
 | S1 normalization | VV clipped [-25, 0], **VH clipped [-32.5, 0]**, shifted/scaled to [0,1] | config leaves `rescale_method='default'` → **both VV and VH clipped [-25, 0]** (the `resnet` variant with -32.5 exists in the loader but is not selected) | **✗ CONFIRMED MISMATCH** |
 | Test split | "following the dataset splits provided in [UnCRtainTS]": train/val/test = 114,056 / 7,176 / 7,899 patches | hardcoded ROI-scene split lists in the loader (UnCRtainTS-style, e.g. `splits['test'] = ['ROIs1158_spring_s1/s1_106', ...]`); patch counts not stated | ~ (likely same lists; **not verified**) |
 | SAM computation | "calculated using the code provided by UnCRtainTS" (formula not shown) | verified in `metrics.py`: channel-axis dot product, `acos`, degrees, per-pixel mean (UnCRtainTS-identical structure); PSNR uses data_range 1 ⇒ metrics in [0,1] space | ~ (same formula family; DB-CR side **not auditable**) |
+| SSIM implementation | UnCRtainTS code ⇒ `util/pytorch_ssim` (Po-Hsun-Su: gaussian 11×11, σ1.5, C1/C2 = 0.01²/0.03²) | `sgm/modules/learning/pytorch_ssim/__init__.py` — same implementation, verified line-level (2026-07-17) | ✓ (same convention — but this is invisible in either paper's text; convention divergence measured at up to 0.06 SSIM in our 3b gate, vs reported margins of ~0.02) |
 
 Reading: the confirmed mismatch is on the *input* side (SAR VH dynamic
 range), which is a legitimate per-method design choice rather than a

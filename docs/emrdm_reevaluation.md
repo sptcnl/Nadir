@@ -120,9 +120,46 @@ triplets (integrity gate passed first: modalities paired, 13-band uint16 S2,
 Data loading, preprocessing, and SAM/PSNR/MAE/RMSE implementations agree to
 floating-point noise. The SSIM cross-implementation delta (gaussian 11×11
 `pytorch_ssim` vs uniform 7×7 skimage) reaches **0.06 per patch — larger
-than the published EMRDM-vs-DiffCR SSIM gap (0.924−0.902 = 0.022)**. SSIM
-values are not comparable across implementations unless the implementation
-is declared; noted for §5.1 and the B2 arm.
+than the published EMRDM-vs-DiffCR SSIM gap (0.924−0.902 = 0.022)**.
+
+**SSIM finding completed (2026-07-17) — verdict: convention-sensitivity
+warning, NOT an invalidation of the 0.022 margin.** Source audit:
+
+- **EMRDM**: `sgm/modules/learning/metrics.py:36` calls
+  `pytorch_ssim.ssim(target, pred)`;
+  `sgm/modules/learning/pytorch_ssim/__init__.py` is the classic
+  Po-Hsun-Su implementation — gaussian 11×11, σ=1.5, C1=0.01², C2=0.03²
+  (data_range=1 implicit), depthwise over all 13 channels, zero-padded
+  borders included.
+- **UnCRtainTS** (the metric code DB-CR states it uses):
+  `util/pytorch_ssim/__init__.py` + `model/src/learning/metrics.py` —
+  byte-for-byte the same convention (EMRDM's metrics module is this code's
+  lineage). ⇒ DB-CR and EMRDM SSIMs share one convention.
+- **DiffCR's own repo** carries two *different* conventions —
+  `evaluation/eval.py`: skimage `compare_ssim(multichannel=True,
+  gaussian_weights=True, use_sample_covariance=False, sigma=1.5)` on
+  PIL-loaded (uint8) images; `evaluation/psnr_ssim.py`: BasicSR-style with
+  C1/C2 hardcoded at 255-scale plus an 11×11×11 3D-conv variant. Neither
+  matters for the SEN12MS-CR table, because:
+- **EMRDM produced the DiffCR row itself**: the appendix states *"we
+  implement the algorithms ourselves … if pre-trained weights are
+  available, we directly use them; otherwise, we retrain the models from
+  scratch"* and, specifically, *"for DiffCR, which lacks official
+  implementation details for the SEN12MS-CR dataset, we reproduce it on
+  this dataset"* (DiffCR's paper never evaluated SEN12MS-CR). A
+  same-authors, same-harness reproduction makes 0.924 vs 0.902 a
+  **same-ruler comparison; the 0.022 margin stands as a valid
+  within-table performance difference.** (Caveat kept honest: the paper
+  nowhere *explicitly* says "all rows use one metric implementation"; the
+  inference rests on the reproduction being inside their codebase.)
+
+What remains true and matters: any SSIM comparison **across** conventions
+(pytorch_ssim-lineage vs skimage-lineage vs 255-scale variants) can move by
+up to the 0.06 we measured — triple the margins these tables report — and
+none of the papers declare their convention in the text. Nadir's own SSIM
+convention is now declared in `protocol.md` §6, and the B4 arm will report
+SSIM under both conventions (dual reporting) so our numbers can be placed
+next to either lineage.
 
 Environment addendum (this step): their loader imports `s2cloudless` at
 module top even with `cloud_masks: None`; lightgbm needs system
