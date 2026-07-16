@@ -104,6 +104,34 @@ if ≥ 0.05°, that is a finding of the §5.1 kind (an undeclared numerics
 setting that moves reported metrics ⇒ hardware-dependent reproducibility),
 to be added to §5.1 and declared as a [choice] in protocol.md.
 
+**3b RESULT (executed 2026-07-17): GATE PASS.** Winter scene 63, 784/784
+triplets (integrity gate passed first: modalities paired, 13-band uint16 S2,
+2-band float32 S1, ranges valid). Per-patch worst deltas, their pipeline
+(emrdm venv) vs Nadir harness (main venv), file handoff:
+
+| Metric | worst per-patch delta | limit | verdict |
+|---|---|---|---|
+| SAM | 5.72e-6 ° | 0.01° | pass (fp noise) |
+| PSNR | 3.81e-6 dB | 0.01 dB | pass |
+| MAE | 5.96e-8 | 1e-5 | pass |
+| RMSE | 5.96e-8 | 1e-5 | pass |
+| SSIM | **0.0596** | 0.05 sanity (not gated) | recorded — exceeds sanity bound |
+
+Data loading, preprocessing, and SAM/PSNR/MAE/RMSE implementations agree to
+floating-point noise. The SSIM cross-implementation delta (gaussian 11×11
+`pytorch_ssim` vs uniform 7×7 skimage) reaches **0.06 per patch — larger
+than the published EMRDM-vs-DiffCR SSIM gap (0.924−0.902 = 0.022)**. SSIM
+values are not comparable across implementations unless the implementation
+is declared; noted for §5.1 and the B2 arm.
+
+Environment addendum (this step): their loader imports `s2cloudless` at
+module top even with `cloud_masks: None`; lightgbm needs system
+`libgomp.so.1` (sudo required, unavailable non-interactively). 3b ran with
+an import shim on the *harness* side (their preprocessing untouched, any
+actual detector use raises). libgomp1 must be installed before Arm A runs
+through their `main.py`. Also: `albumentations==1.4.10` resolves `albucore`
+to a stringzilla-sdist-dependent version — pinned `albucore==0.0.13`.
+
 **Gate: if any Arm A metric lands outside tolerance, Arm B does not run.**
 An out-of-tolerance Arm A means our harness (env, data extraction, weight
 loading, or run configuration) is wrong — that gets debugged and documented;

@@ -19,6 +19,27 @@ import sys
 from pathlib import Path
 
 
+def _shim_s2cloudless() -> None:
+    """Stub the s2cloudless module before sentinel.py imports it.
+
+    Their loader imports S2PixelCloudDetector at module top even when
+    cloud_masks=None (the released test configuration), and lightgbm needs
+    the system libgomp.so.1 which requires sudo to install. This shim only
+    unblocks the *import*; any actual use of the detector raises loudly.
+    Remove once libgomp1 is installed (needed anyway for Arm A via main.py).
+    """
+    import types
+
+    module = types.ModuleType("s2cloudless")
+
+    class S2PixelCloudDetector:  # noqa: ANN001
+        def __init__(self, *a: object, **k: object) -> None:
+            raise RuntimeError("s2cloudless shim: real package unavailable (libgomp missing)")
+
+    module.S2PixelCloudDetector = S2PixelCloudDetector
+    sys.modules["s2cloudless"] = module
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--emrdm", required=True, help="EMRDM repo root (for sgm imports)")
@@ -29,6 +50,7 @@ def main() -> None:
     args = parser.parse_args()
 
     sys.path.insert(0, str(Path(args.emrdm).expanduser()))
+    _shim_s2cloudless()
     import torch
     from sgm.data.sentinel.sentinel import process_MS, read_img, read_tif
     from sgm.modules.learning.metrics import img_metrics
