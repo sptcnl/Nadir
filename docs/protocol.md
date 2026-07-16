@@ -66,12 +66,22 @@ canonical split (train/val/test scene sets are disjoint distinct ROIs).
 | Split | Scenes | Expected patches* |
 |---|---|---|
 | train subset | spring 6, 15, 39, 97, 101, 119, 147 · summer 7, 36, 40, 72, 76, 87, 143 · fall 3, 22, 35, 37, 40, 119, 134 · winter 8, 25, 42, 59, 61, 104, 146 (28 scenes) | ~19.5k (28 × ~698 avg) |
-| val subset | spring 17 · summer 17 · fall 65 · winter 22 (4 scenes) | ~2.8k |
+| val | **canonical UnCRtainTS val, ALL 10 scenes**: spring 17 · summer 17, 19, 80, 127 · fall 65 · winter 22, 84, 107, 130 | 7,176 per DB-CR |
 | test | canonical 10 scenes (§4) | 7,899 per DB-CR |
 
 *Patch counts per scene are unknown before extraction (dataset average
 698 = 122,218/175); actual counts get recorded in the download manifest.
-The ~20k target is met in expectation, not guaranteed per-scene.
+The ~20k train target is met in expectation, not guaranteed per-scene.
+
+**Rejected alternative (recorded 2026-07-16):** a val reduction to 1 scene
+per season (~11 GB instead of ~27 GB) was proposed to protect the C:-drive
+90% budget line. **Rejected on protocol-integrity grounds:** letting a disk
+constraint alter the experimental design creates exactly the kind of
+undeclared canonical-split deviation this project audits DB-CR/EMRDM for
+(§5.1 of `design_decisions.md`). The disk constraint was resolved on the
+infrastructure side instead (dedicated SSD, §9). The train *subset* remains
+a subset — that is a declared, seeded selection for compute budget, not a
+silent split modification; val and test stay canonical and complete.
 
 ## 5. Augmentation
 
@@ -142,28 +152,87 @@ Rules:
                     compact vdisk
                     detach vdisk
    ```
-   Alternative: sparse vhdx (`wsl --manage Ubuntu-24.04 --set-sparse true`)
-   reclaims automatically; requires `wsl --shutdown` first (attempted
-   2026-07-16, blocked by running docker-desktop — pending user approval).
-   Every bulk-deletion step in the pipelines below ends with a reclaim.
+   Primary mechanism: **sparse vhdx — ENABLED 2026-07-16** (approved;
+   executed at vhdx = 2.3 GB, the cheapest possible moment). Verified by
+   measurement: `Get-Item ext4.vhdx` attributes now include `SparseFile`,
+   distro boots normally. With sparse on, freed ext4 blocks return to
+   Windows automatically; the diskpart procedure above stays as fallback
+   if reclaim ever lags. Every bulk-deletion step in the pipelines below
+   still ends with `fstrim`.
 3. **C: usage must stay under 90 % (≤ 858 GB used / ≥ 95 GB free).**
 
-Disk budget (C: at 700 GB used / 252 GB free before this project's data):
+### 9.1 Disk budget (rev 2 — dedicated SSD, phased)
+
+Premise change (2026-07-16): a **1 TB NVMe SSD (Patriot P300)** is added,
+arriving before Step 4 of the re-evaluation plan. Steps 1–3 (environment,
+smoke, single-scene pipeline check) run on the existing C: drive; the full
+streaming pass (Step 4) and everything after runs on the SSD.
+
+**Phase 1 — Steps 1–3 on C:** (700 GB used / 252 GB free at start):
 
 | Item (ext4-resident) | Size est. |
 |---|---|
-| WSL base + EMRDM env (torch, flash-attn, natten; incl. pip caches) | ~17 GB |
+| EMRDM env (torch, flash-attn, natten; incl. caches) | ~17 GB |
 | EMRDM repo + SEN12MS-CR weights | ~3 GB |
-| Test split rasters (10 scenes, 7,899 patches) | ~31 GB |
-| Train subset rasters (28 scenes, ~19.5k patches) | ~78 GB |
-| Val subset rasters (4 scenes, ~2.8k patches) | ~11 GB |
-| Prediction chunk (per-scene generate→eval→delete, peak) | ~4 GB |
-| Logs/manifests/headroom | ~5 GB |
-| **Peak total (end of full streaming pass + Arm A inference)** | **~149 GB** |
+| One test scene (pipeline check) | ~3 GB |
+| Headroom/logs | ~2 GB |
+| **vhdx total** | **~25 GB** |
 
-Peak C: usage = 700 + 149 ≈ **849 GB = 89.1 %** — under the 90 % line with
-~9 GB margin. This margin is thin; mitigations if Windows-side usage grows:
-purge pip caches (−4 GB), enable sparse vhdx, or trim the val subset. The
-peak occurs at the end of the single streaming pass (all splits extracted)
-during Arm A inference; after Arm A, predictions are deleted and the vhdx
-compacted.
+Peak C: usage ≈ 725 GB = **76 %** — comfortable.
+
+**Phase 2 — Step 4+ on the SSD** (WSL storage relocated, §9.2):
+
+| Item | Size est. |
+|---|---|
+| Relocated distro (env + weights) | ~25 GB |
+| Test rasters (7,899 patches) | ~31 GB |
+| Val rasters (canonical 10 scenes, 7,176 patches) | ~27 GB |
+| Train subset rasters (~19.5k patches) | ~78 GB |
+| Prediction chunk peak + logs/manifests | ~9 GB |
+| **SSD total** | **~170 GB of 1 TB = 17 %** |
+
+C: returns to ~700 GB used once the old vhdx is unregistered. No budget
+line is anywhere near 90 % in either phase.
+
+### 9.2 SSD attachment: options compared (decision pending user approval)
+
+`/mnt/d/`-style NTFS drvfs mounts are ruled out (9p, violates the
+ext4-only rule). Two compliant designs:
+
+**(a) `wsl --mount \\.\PHYSICALDRIVE<n> --bare` + mkfs.ext4 — raw disk passthrough**
+- Procedure: attach the physical disk to WSL (`--bare`), `mkfs.ext4` it
+  inside the distro, mount at `~/data`. Requires admin; the disk becomes
+  invisible to Windows while attached.
+- Performance: best possible (raw NVMe under native ext4, no vhdx layer).
+- Risks: **the mount does not survive reboots or `wsl --shutdown`** — it
+  must be re-attached each time (automatable via Scheduled Task, but a
+  missed remount mid-Step-4 aborts the streaming pass exactly when it
+  hurts); whole disk is consumed (no NTFS partition possible alongside);
+  `wsl --mount` failures are opaque on some USB/NVMe bridges.
+- Rollback: detach, re-initialize the disk NTFS in Windows Disk Management.
+- Existing 2.3→25 GB vhdx: stays on C: as the distro root (only data moves).
+
+**(b) `wsl --export` / `--import` — relocate the whole distro to the SSD** ← **recommended**
+- Procedure: `wsl --shutdown` → `wsl --export Ubuntu-24.04 D:\wsl\ubuntu2404.tar`
+  → `wsl --import Ubuntu-24.04-nvme D:\wsl\Ubuntu-24.04 D:\wsl\ubuntu2404.tar`
+  → set default user in `/etc/wsl.conf` (imports default to root) →
+  re-enable sparse on the new vhdx → verify boot + `nvidia-smi` → after
+  verification, `wsl --unregister Ubuntu-24.04` frees C:.
+- Performance: ext4-in-vhdx on NTFS — the same storage path the distro
+  uses today on C:, i.e. known-good for dataloaders; a few percent vhdx
+  overhead vs (a).
+- Risks: minor and front-loaded (import defaults to root; Store-app
+  shortcut points at the old distro) — all detectable before any data
+  lands. **Survives reboots and `wsl --shutdown` with zero intervention**,
+  which matters for a multi-day 292 GB streaming pass on a machine that
+  takes Windows Updates.
+- Rollback: export/import back to C: (or anywhere); the .tar is itself a
+  backup artifact.
+- Existing vhdx: consumed by the export, then unregistered — nothing
+  stranded on C:.
+
+Recommendation: **(b)**. The raw-IO edge of (a) is not the bottleneck
+(the dataloader reads ~4 MB patches; the TUM server and the GPU are the
+bottlenecks), while (a)'s remount-on-every-boot failure mode directly
+threatens the one-shot streaming pass. Execute (b) when the SSD arrives,
+before Step 4.
