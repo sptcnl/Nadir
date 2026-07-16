@@ -1,11 +1,13 @@
 # Phase 2 Design Decisions: Representation Space for SAR-Conditioned Diffusion
 
-**Status: PROPOSED (rev 2) — awaiting approval. No model code exists for Phase 2 yet.**
-Date: 2026-07-16 (rev 2 same day; rev 1 contained three factual errors — an
-inverted reading of EO-VAE, a missing frozen-tokenizer candidate, and a wrong
+**Status: APPROVED (candidate A + B′ probe), rev 3. No model code exists for Phase 2 yet.**
+Date: 2026-07-16. Revision history: rev 1 contained three factual errors (an
+inverted reading of EO-VAE, a missing frozen-tokenizer candidate, a wrong
 attribution of DB-CR's NFE=1 to pixel space rather than its bridge
-formulation. All corrected below; the recommendation survives but stands on
-partially new grounds.)
+formulation) — corrected in rev 2. Rev 3 adds: the executed EO-VAE weight
+probe (§6.1), the DB-CR/EMRDM comparability audit (§2.3), and the EMRDM
+released-weights re-evaluation as the project's first contribution item
+(§5.1), scheduled as a Phase 1 extension.
 
 Scope: choice of the generative backbone's representation space (pixel vs.
 latent) for 13-band Sentinel-2 cloud removal conditioned on Sentinel-1 SAR.
@@ -40,12 +42,16 @@ that this task is restoration-with-uncertainty, not free-form generation.
 | SAR-DeCR (RemSens 17(13), 2025) | latent (texture stage) | LDM-style | RGB-focused stage | SAR fused *before* the latent stage | n/s | LDM-style | n/s |
 | **EO-VAE** (arXiv 2602.12177, 2026) | domain latent (multi-sensor tokenizer) | tokenizer (Flux.2 AE + channel hypernetworks) | configs incl. **S2 L1C 13-band** and S1 RTC | n/a | 106.5M | n/a | **Yes — weights on HF (`nilsleh/eo-vae`), Apache-2.0** |
 
-SEN12MS-CR headline numbers reported by EMRDM: **PSNR 32.14, SSIM 0.924,
-SAM 5.267°, MAE 0.018**, each beating DiffCR (31.77 / 0.902 / 5.821 / 0.019).
-DB-CR separately reports SAM 4.74° against its own baseline set. The two are
-concurrent works; EMRDM's tables do not include DB-CR and no public DB-CR
-code exists to settle the comparison — **EMRDM is therefore the reproducible
-state-of-the-art reference for our purposes.**
+SEN12MS-CR headline numbers, re-verified against the original tables
+(2026-07-16): DB-CR Table I reports **PSNR 33.47, SSIM 0.922, SAM 4.740°,
+MAE 0.016**; EMRDM reports **PSNR 32.14, SSIM 0.924, SAM 5.267°, MAE 0.018**,
+beating DiffCR (31.77 / 0.902 / 5.821 / 0.019) in its own table. Placing
+4.740 against 5.267 as a ranking is **not supported**: the comparability
+audit in §2.3 found a confirmed preprocessing mismatch and two unverifiable
+equivalences between the two papers' setups — they are *not comparable as
+reported*, not merely "concurrent works without cross-comparison". EMRDM
+remains **the reproducible reference** (code + SEN12MS-CR weights public);
+DB-CR's number cannot be audited at all without code.
 
 ### 2.1 What DB-CR and EMRDM actually share (rev-1 error #3 corrected)
 
@@ -79,6 +85,33 @@ is RGBN, not 13-band; it is not mask-constrained inpainting; there is no SAR
 fusion; and EO-VAE's headline numbers are on TerraMesh distributions, while
 SEN12MS-CR is L1C TOA with clouds — the roundtrip quality on *our* data is
 exactly what the B′ probe (§6) measures instead of assumes.
+
+### 2.3 Comparability audit: DB-CR 4.740° vs EMRDM 5.267° (added rev 3)
+
+Conditions extracted from the DB-CR paper (experimental setup section) and
+from EMRDM's released code (`sgm/data/sentinel/sentinel.py`,
+`sgm/modules/learning/metrics.py`, `configs/example_training/sentinel.yaml`),
+since EMRDM's paper defers preprocessing to an appendix:
+
+| Condition | DB-CR (paper) | EMRDM (released code) | Match? |
+|---|---|---|---|
+| S2 clipping | "[0, 10,000], then scaled to [0, 1]" | `clip(img, 0, 10000)` → rescale to [0,1] (→[-1,1] in training wrapper) | ✓ |
+| S2 bands | 13 ("13 spectral bands") | 13 (loader reads full stack, `[13,256,256]`) | ✓ |
+| S1 normalization | VV clipped [-25, 0], **VH clipped [-32.5, 0]**, shifted/scaled to [0,1] | config leaves `rescale_method='default'` → **both VV and VH clipped [-25, 0]** (the `resnet` variant with -32.5 exists in the loader but is not selected) | **✗ CONFIRMED MISMATCH** |
+| Test split | "following the dataset splits provided in [UnCRtainTS]": train/val/test = 114,056 / 7,176 / 7,899 patches | hardcoded ROI-scene split lists in the loader (UnCRtainTS-style, e.g. `splits['test'] = ['ROIs1158_spring_s1/s1_106', ...]`); patch counts not stated | ~ (likely same lists; **not verified**) |
+| SAM computation | "calculated using the code provided by UnCRtainTS" (formula not shown) | verified in `metrics.py`: channel-axis dot product, `acos`, degrees, per-pixel mean (UnCRtainTS-identical structure); PSNR uses data_range 1 ⇒ metrics in [0,1] space | ~ (same formula family; DB-CR side **not auditable**) |
+
+Reading: the confirmed mismatch is on the *input* side (SAR VH dynamic
+range), which is a legitimate per-method design choice rather than a
+benchmark violation — but it means the two systems were trained and
+evaluated under different input conditions. Combined with the two
+unverifiable equivalences (exact test-patch set; metric implementation on
+the DB-CR side), the accurate statement is: **the reported 4.740° and
+5.267° were produced under conditions that cannot be shown to be identical,
+so they are not comparable as reported.** The only way to place them on one
+scale is to re-evaluate under a single protocol — which is exactly the
+EMRDM re-evaluation deliverable in §5.1 (and, for DB-CR, impossible until
+code or weights are released).
 
 ## 3. Candidates
 
@@ -115,9 +148,14 @@ exactly what the B′ probe (§6) measures instead of assumes.
 
 ### B′ — Frozen EO-VAE tokenizer + latent diffusion  *(added in rev 2)*
 
-- Use the released EO-VAE weights (HF `nilsleh/eo-vae`, Apache-2.0; the
-  repo lists an **S2 L1C 13-band** channel configuration and S1 RTC) as a
-  frozen encoder/decoder; train only the latent bridge/MR diffusion.
+- Use the released EO-VAE weights as a frozen encoder/decoder; train only
+  the latent bridge/MR diffusion. **Weight availability is no longer a
+  paper claim — it was executed and verified on 2026-07-16 (§6.1):**
+  checkpoint `eo-vae.ckpt` + `model_config.yaml` from HF repo
+  `https://huggingface.co/nilsleh/eo-vae` (Apache-2.0), loaded via
+  `EOFluxVAE.from_pretrained(repo_id="nilsleh/eo-vae", ...)`, 95.5M params,
+  and a 13-band S2 L1C tensor roundtrips to a finite (1, 13, 256, 256)
+  output through a (32, 32, 32) latent (f=8 spatial, 32 channels).
 - **Cost structure is nothing like B:** no VAE training at all. The
   reconstruction-ceiling measurement is *inference only* — encode→decode
   our held-out test ROIs and run the Phase-1 metric suite. **~half a day of
@@ -214,19 +252,30 @@ cite DB-CR/EMRDM as the architectural basis, not claim invention.
 
 The project's contribution is deliberately located elsewhere:
 
-1. **Evaluation protocol:** mask-split (full/cloud/clear) reporting of
+1. **EMRDM released-weights re-evaluation** *(scheduled as a Phase 1
+   extension — it precedes and does not depend on any model we train).*
+   EMRDM publishes SEN12MS-CR weights (github.com/Ly403/EMRDM). We run
+   those weights through this project's unified protocol — mask-split
+   (full/cloud/clear) metrics, fixed preprocessing, our own SAM
+   implementation — and measure whether the paper's reported numbers
+   reproduce. This is an independent deliverable regardless of how our own
+   model performs, and §2.3 shows why it is necessary: the field's two
+   best claims cannot currently be placed on one scale. Its output also
+   fixes the coordinate system in which our own model's numbers must be
+   read — before we train anything.
+2. **Evaluation protocol:** mask-split (full/cloud/clear) reporting of
    SAM-first metrics. Published tables (incl. EMRDM's) report full-image
    averages, which §2's own logic says can hide clear-pixel copying.
-2. **Controlled conditioning ablation:** the (a) no-SAR / (b) concat /
+3. **Controlled conditioning ablation:** the (a) no-SAR / (b) concat /
    (c) zero-conv branch / (d) cross-attention ladder under identical seeds,
    data, and steps — including the thick-cloud-subset analysis of *when*
    SAR actually contributes. No published work isolates this.
-3. **Failure analysis:** negative and null results (e.g. "SAR adds nothing
+4. **Failure analysis:** negative and null results (e.g. "SAR adds nothing
    outside thick cloud") reported as findings, with W&B evidence trails.
-4. **Reproducibility:** open pipeline with geographic splits, fixed seeds,
+5. **Reproducibility:** open pipeline with geographic splits, fixed seeds,
    and released configs — against a field where the strongest claimed
    result (DB-CR) has no public code.
-5. **Deployment curves:** NFE-vs-metric trade-off curves (Step 5), asking
+6. **Deployment curves:** NFE-vs-metric trade-off curves (Step 5), asking
    "where does SAM collapse" rather than "how low can NFE go".
 
 ## 6. Reconstruction ceiling probes (updated for B′)
@@ -245,6 +294,46 @@ The project's contribution is deliberately located elsewhere:
 
 **B probe (only if B ever revives):** as rev 1 — train 13ch KL-VAE on
 training ROIs, same measurement, same gate.
+
+### 6.1 B′ weight-availability probe — EXECUTED 2026-07-16 (verdict: B′ stays alive)
+
+Environment: isolated venv (EO-VAE pins `torchvision==0.16.2`; installed
+`--no-deps` with torch 2.13 CPU + einops/lightning/safetensors/omegaconf/
+huggingface_hub/focal-frequency-loss instead — works). Probe script kept at
+`scripts/probe_eovae.py`.
+
+```text
+Loading weights from ...huggingface\hub\models--nilsleh--eo-vae\snapshots\7f675ab7d242a34a63a03e6fd2d19f28bb73cdd2\eo-vae.ckpt
+Checkpoint loaded: 0 missing (expected), 0 unexpected (ignored)
+loaded EOFluxVAE, params=95.5M
+input: (1, 13, 256, 256) z-scored range=(-1.334,8.558)
+latent: (1, 32, 32, 32)
+recon:  (1, 13, 256, 256) finite=True range=(-1.409,4.375)
+dummy-data roundtrip (NOT a quality claim): PSNR=23.73 dB, MAE=0.0478, SAM=14.039 deg
+PROBE OK
+```
+
+Facts established:
+- Exact weight location: HF repo **`nilsleh/eo-vae`** (snapshot `7f675ab`),
+  files `eo-vae.ckpt` + `model_config.yaml`; loader
+  `EOFluxVAE.from_pretrained(repo_id="nilsleh/eo-vae", ...)`. 95.5M params.
+- The S2 L1C 13-band wavelength configuration is accepted; latent is
+  (32, 32, 32) for a 256² input — f=8 spatial compression, 32 channels
+  (so a 256² cloud mask maps to 32² in latent, confirming §3's mask
+  granularity concern).
+- **Input convention (found the hard way):** per-band z-score of raw DN
+  with TerraMesh statistics (`eo_vae/datasets/terramesh.py`,
+  `MultimodalNormalize`) — *not* [0,1] reflectance. A first run with [0,1]
+  inputs silently produced garbage-grade output (PSNR 17.1 dB); any future
+  B′ work must use the verified convention in `scripts/probe_eovae.py`.
+- The roundtrip numbers above are on a **synthetic dummy patch** whose
+  spectra sit up to 8.6σ outside TerraMesh statistics; they are a smoke
+  log, not a ceiling measurement. **The §6 gate still requires real
+  SEN12MS-CR test ROIs** (pending real-data download).
+
+Verdict: the rev-2 discard condition ("weights don't exist / don't load /
+reject 13-band input") did **not** trigger. B′ remains the live fallback;
+its quality gate is still open pending real data.
 
 ## 7. Consequences for Steps 2–5 (rewritten after §2.1)
 
@@ -289,7 +378,9 @@ training ROIs, same measurement, same gate.
 - Lehmann et al., *EO-VAE: Towards A Multi-sensor Tokenizer for Earth
   Observation Data*, arXiv 2602.12177, 2026.
   https://arxiv.org/abs/2602.12177 — code: https://github.com/nilsleh/eo-vae,
-  weights: HF `nilsleh/eo-vae` (Apache-2.0).
+  weights: https://huggingface.co/nilsleh/eo-vae (`eo-vae.ckpt`,
+  `model_config.yaml`; Apache-2.0) — **download + 13-band roundtrip verified
+  2026-07-16, see §6.1.**
 - *Fusing Sentinel-1 and Sentinel-2 data with diffusion models for cloud
   removal*, Remote Sensing of Environment, 2025.
   https://www.sciencedirect.com/science/article/abs/pii/S0034425725004535
