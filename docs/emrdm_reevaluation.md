@@ -152,6 +152,53 @@ against it), realesrgan/sdata editable extras, anything training-only.
 Missing pieces, if any, surface at Step 2 (weight load + smoke inference)
 and get appended to this table.
 
+### 7.2 Kernel numerical validation (Step 2a — executed 2026-07-16, RTX 4080)
+
+Motivation: the wheels cross version tags (flash_attn built for cu122 on a
+cu121 torch; natten tagged torch220 on torch 2.2.1). Import success does not
+rule out ABI/kernel corruption, which can silently bias numbers inside the
+SAM ±0.05° gate. Method: flash-attn's own test criterion — kernel error vs
+a float32 naive reference must be ≤ 2× the naive-in-dtype error.
+
+**flash_attn 2.5.9.post1 — PASS, 12/12 configs.** Max-abs-error vs fp32
+reference (ratio = kernel_err / naive_err; criterion ratio ≤ 2):
+
+| dtype | (B,S,H,D) | causal | kernel_err | naive_err | ratio |
+|---|---|---|---|---|---|
+| fp16 | 2,1024,8,64 | no / yes | 1.32e-4 / 8.96e-4 | 5.11e-4 / 1.27e-3 | 0.26 / 0.71 |
+| fp16 | 1,4096,8,64 | no / yes | 6.45e-5 / 1.00e-3 | 1.94e-4 / 1.23e-3 | 0.33 / 0.82 |
+| fp16 | 2,512,4,128 | no / yes | 1.80e-4 / 7.91e-4 | 7.55e-4 / 2.34e-3 | 0.24 / 0.34 |
+| bf16 | 2,1024,8,64 | no / yes | 9.90e-4 / 7.57e-3 | 3.85e-3 / 1.29e-2 | 0.26 / 0.59 |
+| bf16 | 1,4096,8,64 | no / yes | 5.33e-4 / 8.28e-3 | 2.49e-3 / 8.71e-3 | 0.21 / 0.95 |
+| bf16 | 2,512,4,128 | no / yes | 1.90e-3 / 6.53e-3 | 7.15e-3 / 1.64e-2 | 0.27 / 0.40 |
+
+The kernel is consistently *more* accurate than naive PyTorch (ratio < 1
+everywhere): no ABI anomaly.
+
+**natten 0.17.1 — PASS after root-causing an fp32 deviation.**
+fp16/bf16 vs fp32 reference: kernel_err 1.20e-3 / 6.13e-3, ratios 1.23 /
+1.00 — PASS. The initial fp32 "tight" check failed (2.77e-3 vs a 1e-4
+limit); investigation against a float64 reference:
+
+| natten fp32 config | max err vs fp64 ref |
+|---|---|
+| defaults (GEMM-NA on, TF32 on) | 2.774e-3 |
+| TF32 off | 8.245e-4 |
+| GEMM-NA disabled (naive CUDA path) | **2.906e-7** |
+| naive PyTorch fp32 (reference sanity) | 2.174e-7 |
+
+Errors were spatially uniform (interior 1.97e-3 / border 2.77e-3), ruling
+out window-semantics mismatch. Conclusion: the deviation is natten's
+documented default tensor-core GEMM-NA path (TF32 + reduced-precision
+accumulation), not corruption — with that path disabled the kernel agrees
+with the reference at the fp32 noise floor, which simultaneously validates
+our reference's border semantics. **Arm A decision:** run EMRDM with natten
+defaults, because upstream defaults are what produced the paper's numbers;
+`natten.disable_tf32()` / `disable_gemm_na()` remain available if a
+strict-fp32 arm is ever needed.
+
+**Verdict: Step 2a gate PASSED — wheel combination approved for Arm A.**
+
 ## 8. Results
 
 *(empty — to be filled by execution, tolerances above may not be edited)*
