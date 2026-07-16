@@ -24,10 +24,16 @@ def _shim_s2cloudless() -> None:
 
     Their loader imports S2PixelCloudDetector at module top even when
     cloud_masks=None (the released test configuration), and lightgbm needs
-    the system libgomp.so.1 which requires sudo to install. This shim only
-    unblocks the *import*; any actual use of the detector raises loudly.
-    Remove once libgomp1 is installed (needed anyway for Arm A via main.py).
+    the system libgomp.so.1 which requires sudo to install. The shim only
+    engages when the real import fails, and any actual use of the detector
+    raises loudly. (libgomp1 is installed on this machine as of 2026-07-17,
+    so the shim is normally dormant.)
     """
+    try:
+        import s2cloudless  # noqa: F401
+        return
+    except (ImportError, OSError):
+        pass
     import types
 
     module = types.ModuleType("s2cloudless")

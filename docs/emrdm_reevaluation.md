@@ -132,6 +132,40 @@ actual detector use raises). libgomp1 must be installed before Arm A runs
 through their `main.py`. Also: `albumentations==1.4.10` resolves `albucore`
 to a stringzilla-sdist-dependent version — pinned `albucore==0.0.13`.
 
+**3c RESULT (executed 2026-07-17): TF32 is immaterial — defaults kept.**
+Full 784-patch inference on winter scene 63, twice, same seed (identical
+sampler noise), RTX 4080: (i) TF32 on (replicating `main.py --enable_tf32`
++ natten defaults), (ii) TF32 off (matmul/cuDNN/natten GEMM-NA all off).
+
+| Metric | agg on | agg off | \|agg Δ\| | worst patch Δ | mean patch Δ |
+|---|---|---|---|---|---|
+| SAM (°) | 8.048504 | 8.046769 | **0.0017** | 0.0296 | 0.0063 |
+| PSNR (dB) | 28.998953 | 29.004332 | 0.0054 | 0.0489 | 0.0106 |
+| SSIM | 0.887575 | 0.887488 | 0.0001 | 0.0005 | 0.0001 |
+| MAE | 0.025721 | 0.025726 | 6e-6 | 1.4e-4 | 3.2e-5 |
+| RMSE | 0.036270 | 0.036252 | 1.9e-5 | 1.8e-4 | 4.1e-5 |
+
+Pre-registered rule: |ΔSAM| < 0.05° ⇒ immaterial. Measured 0.0017°
+aggregate (worst single patch 0.0296°, still under). **Verdict: TF32 does
+not threaten the Arm A gate on this hardware — Arm A runs with their
+`--enable_tf32` defaults, matter closed.** (Scene-63 aggregate SAM ≈ 8.05
+is a single winter scene and is NOT comparable to the full-test-set 5.267;
+no conclusion drawn from that difference.)
+
+**3d RESULT (executed 2026-07-17): pipeline pass-through OK, handoff format
+approved.** The tf32-on run wrote all 784 predictions as uint16 DN .npz;
+the Nadir harness (main venv) consumed them against ground-truth rasters
+and reproduced EMRDM's in-run per-patch metrics with worst deltas
+SAM 8.3e-5° / PSNR 4.2e-5 dB / MAE 1e-6 — i.e. the uint16 quantization in
+the file handoff costs three orders of magnitude less than the Arm A
+tolerance. Environment note: the user installed system `libgomp1`;
+`s2cloudless`/lightgbm now import natively and the 3b import shim is
+dormant (engages only on ImportError).
+
+**Step 3 verdict: all gates passed (3a aggregate-only, 3b harness fp-level
+agreement, 3c TF32 immaterial, 3d handoff validated). Cleared for Step 4
+(full streaming pass) once the SSD arrives, then Step 5 (Arm A proper).**
+
 **Gate: if any Arm A metric lands outside tolerance, Arm B does not run.**
 An out-of-tolerance Arm A means our harness (env, data extraction, weight
 loading, or run configuration) is wrong — that gets debugged and documented;
