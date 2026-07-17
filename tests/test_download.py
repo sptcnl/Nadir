@@ -107,16 +107,14 @@ def test_stream_extract_scene_subset(tmp_path: Path) -> None:
     _make_archive(archive)
     out = tmp_path / "out"
 
-    class _FakeResponse:
-        def __init__(self, path: Path) -> None:
-            self._fh = open(path, "rb")
-
-        def read(self, n: int = -1) -> bytes:
-            return self._fh.read(n)
-
+    import io
     import unittest.mock as mock
 
-    with mock.patch.object(dl.urllib.request, "urlopen", return_value=_FakeResponse(archive)):
+    # stream_extract wraps the response in io.BufferedReader, which requires a
+    # RawIOBase-compatible object — a plain file handle satisfies it.
+    with mock.patch.object(
+        dl.urllib.request, "urlopen", return_value=io.FileIO(archive, "rb")
+    ):
         n = dl.stream_extract("ROIs1158_spring_s1.tar.gz", out, scenes={2})
     assert n == 1
     assert (out / "ROIs1158_spring_s1" / "s1_2").exists()

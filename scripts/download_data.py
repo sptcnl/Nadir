@@ -28,11 +28,14 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import re
 import sys
 import tarfile
+import threading
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -146,9 +149,11 @@ def stream_extract(archive: str, out_dir: Path, scenes: set[int] | None) -> int:
     a failed stream restarts from zero for that archive.
     """
     response = urllib.request.urlopen(urllib.request.Request(BASE_URL + archive))
+    # Large read buffer: tarfile stream mode otherwise issues small TLS reads.
+    buffered = io.BufferedReader(response, buffer_size=4 * _CHUNK)
     extracted = 0
     # r|gz = non-seekable stream mode; members must be extracted while iterating.
-    with tarfile.open(fileobj=response, mode="r|gz") as tar:
+    with tarfile.open(fileobj=buffered, mode="r|gz", bufsize=_CHUNK) as tar:
         for member in tar:
             scene = member_scene(member.name)
             if scenes is not None and scene is not None and scene not in scenes:
@@ -216,6 +221,14 @@ def main() -> None:
         help="stream archives and extract on the fly without storing .tar.gz"
         " (transfer cost unchanged; disk cost = extracted patches only)",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="concurrent archive downloads. The TUM server caps per-connection"
+        " throughput (~2-4 MB/s measured from this host), so 3 workers"
+        " roughly triples aggregate speed on a faster line",
+    )
     args = parser.parse_args()
 
     if args.list:
@@ -243,27 +256,47 @@ def main() -> None:
     manifest_path = args.out / "_manifest.json"
     args.out.mkdir(parents=True, exist_ok=True)
     manifest = load_manifest(manifest_path)
+
+    jobs: list[tuple[str, set[int] | None]] = []
     for season, season_scenes in plan.items():
         for archive in archive_names(season):
             if archive_done(manifest, archive):
                 done = manifest["archives"][archive]
                 print(f"{archive}: already done ({done.get('files')} files), skipping")
-                continue
+            else:
+                jobs.append((archive, season_scenes))
+
+    # Archives extract into disjoint top-level dirs (one season+modality each),
+    # so concurrent workers never write the same path. Manifest writes are
+    # serialized behind a lock.
+    lock = threading.Lock()
+
+    def run_job(job: tuple[str, set[int] | None]) -> None:
+        archive, scenes = job
+        with lock:
             manifest["archives"][archive] = {
                 "status": "in_progress",
                 "started": _now(),
-                "scenes": sorted(season_scenes) if season_scenes else None,
+                "scenes": sorted(scenes) if scenes else None,
             }
             save_manifest(manifest_path, manifest)
-            if args.stream or args.split == "test":
-                n = stream_extract(archive, args.out, season_scenes)
-            else:
-                path = download(archive, archive_dir)
-                n = extract(path, args.out, season_scenes) if not args.skip_extract else -1
+        if args.stream or args.split == "test":
+            n = stream_extract(archive, args.out, scenes)
+        else:
+            path = download(archive, archive_dir)
+            n = extract(path, args.out, scenes) if not args.skip_extract else -1
+        with lock:
             manifest["archives"][archive].update(
                 {"status": "done", "files": n, "finished": _now()}
             )
             save_manifest(manifest_path, manifest)
+
+    if args.workers > 1 and len(jobs) > 1:
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            list(pool.map(run_job, jobs))
+    else:
+        for job in jobs:
+            run_job(job)
 
     # The dataset class scans <out>/*_s1/s1_*/*.tif; fail loudly here rather
     # than late in training if the archive layout ever changes upstream.
