@@ -34,6 +34,7 @@ import re
 import sys
 import tarfile
 import threading
+import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -271,7 +272,11 @@ def main() -> None:
     # serialized behind a lock.
     lock = threading.Lock()
 
-    def run_job(job: tuple[str, set[int] | None]) -> None:
+    def run_job(job: tuple[str, set[int] | None]) -> str | None:
+        """Process one archive; returns None on success, the archive name on
+        failure. Transient network drops (the server cuts long streams) are
+        retried in place; a stream restarted mid-archive re-extracts from
+        zero, which only costs transfer time (extraction is idempotent)."""
         archive, scenes = job
         with lock:
             manifest["archives"][archive] = {
@@ -280,23 +285,37 @@ def main() -> None:
                 "scenes": sorted(scenes) if scenes else None,
             }
             save_manifest(manifest_path, manifest)
-        if args.stream or args.split == "test":
-            n = stream_extract(archive, args.out, scenes)
+        last_error: Exception | None = None
+        for attempt in range(1, 6):
+            try:
+                if args.stream or args.split == "test":
+                    n = stream_extract(archive, args.out, scenes)
+                else:
+                    path = download(archive, archive_dir)
+                    n = extract(path, args.out, scenes) if not args.skip_extract else -1
+                break
+            except Exception as err:  # noqa: BLE001 — network/tar errors alike
+                last_error = err
+                print(f"{archive}: attempt {attempt} failed ({err!r}); retrying in 30s",
+                      flush=True)
+                time.sleep(30)
         else:
-            path = download(archive, archive_dir)
-            n = extract(path, args.out, scenes) if not args.skip_extract else -1
+            print(f"{archive}: FAILED after 5 attempts: {last_error!r}", flush=True)
+            return archive
         with lock:
             manifest["archives"][archive].update(
                 {"status": "done", "files": n, "finished": _now()}
             )
             save_manifest(manifest_path, manifest)
+        return None
 
     if args.workers > 1 and len(jobs) > 1:
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
-            list(pool.map(run_job, jobs))
+            failures = [f for f in pool.map(run_job, jobs) if f]
     else:
-        for job in jobs:
-            run_job(job)
+        failures = [f for f in map(run_job, jobs) if f]
+    if failures:
+        sys.exit(f"{len(failures)} archive(s) failed permanently: {failures}")
 
     # The dataset class scans <out>/*_s1/s1_*/*.tif; fail loudly here rather
     # than late in training if the archive layout ever changes upstream.
