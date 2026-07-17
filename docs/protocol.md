@@ -51,9 +51,18 @@ Basis labels:
 
 ### 4.1 Phase-2 real-data scene selection — FIXED (single-transfer commitment)
 
-The TUM server distributes only whole-season archives; every scene choice
-below is extracted during **one** 292 GB streaming pass. **Changing this
-list later means re-transferring 292 GB.** Fixed on 2026-07-16.
+The TUM server distributes only whole-season archives. **Changing the scene
+lists below means re-transferring 292 GB.** Fixed on 2026-07-16.
+
+**Execution status (updated 2026-07-17):** the Step-4 streaming pass
+extracts the **test split only** (~31 GB). The train/val subset is
+deliberately NOT extracted in the same pass. The reason is **decision
+deferral, not disk** (the earlier disk-constraint framing is superseded):
+no training data is acquired before (a) the Arm A reproduction gate has a
+verdict and (b) the go/no-go on training our own model is made. This
+knowingly accepts a possible second 292 GB pass later; the scene selection
+itself stays fixed as declared below, so the deferral changes *when* the
+transfer happens, never *what* is selected.
 
 Selection rule [choice]: from the canonical UnCRtainTS *train* scene lists
 (155 scenes), 7 scenes per season (season-balanced 25/25/25/25), drawn with
@@ -161,12 +170,31 @@ Rules:
    still ends with `fstrim`.
 3. **C: usage must stay under 90 % (≤ 858 GB used / ≥ 95 GB free).**
 
-### 9.1 Disk budget (rev 2 — dedicated SSD, phased)
+### 9.1 Disk budget (rev 3 — C:-resident, SSD relocation ON HOLD)
 
-Premise change (2026-07-16): a **1 TB NVMe SSD (Patriot P300)** is added,
-arriving before Step 4 of the re-evaluation plan. Steps 1–3 (environment,
-smoke, single-scene pipeline check) run on the existing C: drive; the full
-streaming pass (Step 4) and everything after runs on the SSD.
+Premise change (2026-07-17): disk resolved on C: (263 GB free measured);
+the SSD relocation plan in §9.2 is **on hold in its entirety** — nothing in
+it executes until reactivated. Everything runs in the existing sparse vhdx
+on C:. With the test-only Step 4 (see §4.1 deferral), the budget is:
+
+| Item (ext4-resident) | Size est. |
+|---|---|
+| EMRDM env + repo + weights (measured) | ~10 GB |
+| Test split rasters (7,899 patches) | ~31 GB |
+| Prediction chunk peak + logs/manifest | ~5 GB |
+| **vhdx total** | **~46 GB** |
+
+Peak C: usage ≈ 736 GB ≈ **77 %** — comfortable. If model training is
+approved later, the train/val extraction (~105 GB) still fits C: at ~88 %,
+but the budget will be re-derived then.
+
+### 9.1-legacy (superseded rev 2 — SSD-phased plan, kept for the record)
+
+Premise (2026-07-16, now on hold): a **1 TB NVMe SSD (Patriot P300)** is
+added, arriving before Step 4 of the re-evaluation plan. Steps 1–3
+(environment, smoke, single-scene pipeline check) run on the existing C:
+drive; the full streaming pass (Step 4) and everything after runs on the
+SSD.
 
 **Phase 1 — Steps 1–3 on C:** (700 GB used / 252 GB free at start):
 
@@ -194,7 +222,7 @@ Peak C: usage ≈ 725 GB = **76 %** — comfortable.
 C: returns to ~700 GB used once the old vhdx is unregistered. No budget
 line is anywhere near 90 % in either phase.
 
-### 9.2 SSD attachment: options compared (decision pending user approval)
+### 9.2 SSD attachment: options compared — **ON HOLD (2026-07-17)**, option (b) was approved with three conditions (re-measure sparse after import; set default user in /etc/wsl.conf; unregister old distro only after full verification) and executes only if reactivated
 
 `/mnt/d/`-style NTFS drvfs mounts are ruled out (9p, violates the
 ext4-only rule). Two compliant designs:

@@ -86,6 +86,20 @@ def test_canonical_test_split_matches_uncrtaints() -> None:
     assert set(dl.TEST_SPLIT) == set(dl.SEASONS)
 
 
+def test_manifest_roundtrip_and_skip(tmp_path: Path) -> None:
+    path = tmp_path / "_manifest.json"
+    manifest = dl.load_manifest(path)
+    assert manifest["archives"] == {}
+    manifest["archives"]["a.tar.gz"] = {"status": "done", "files": 10}
+    manifest["archives"]["b.tar.gz"] = {"status": "in_progress"}
+    dl.save_manifest(path, manifest)
+    reloaded = dl.load_manifest(path)
+    assert dl.archive_done(reloaded, "a.tar.gz")  # done -> skipped on resume
+    assert not dl.archive_done(reloaded, "b.tar.gz")  # crashed mid-stream -> redone
+    assert not dl.archive_done(reloaded, "c.tar.gz")  # never started -> done fresh
+    assert "updated" in reloaded
+
+
 def test_stream_extract_scene_subset(tmp_path: Path) -> None:
     # stream_extract must behave like extract() given the same filter; feed it
     # a local file object instead of an HTTP response.

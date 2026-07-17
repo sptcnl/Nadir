@@ -28,10 +28,12 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 import tarfile
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
 
 BASE_URL = "https://dataserv.ub.tum.de/s/m1554803/download?path=/&files="
@@ -56,6 +58,34 @@ TEST_SPLIT: dict[str, tuple[int, ...]] = {
 }
 
 _CHUNK = 1 << 20  # 1 MiB
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def load_manifest(path: Path) -> dict:
+    """Resume manifest: records per-archive extraction status.
+
+    Streamed gzip archives cannot resume mid-stream, so the resume unit is
+    one archive: 'done' archives are skipped on rerun, anything else
+    (missing / 'in_progress' after a crash) is re-streamed from zero.
+    Worst-case retransfer after an interruption = one archive (<= 49 GB).
+    """
+    if path.exists():
+        return json.loads(path.read_text())
+    return {"created": _now(), "archives": {}}
+
+
+def save_manifest(path: Path, manifest: dict) -> None:
+    manifest["updated"] = _now()
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    tmp.replace(path)
+
+
+def archive_done(manifest: dict, archive: str) -> bool:
+    return manifest["archives"].get(archive, {}).get("status") == "done"
 
 
 def archive_names(season: str) -> list[str]:
@@ -210,14 +240,30 @@ def main() -> None:
         plan = {season: scenes for season in seasons}
 
     archive_dir = args.archive_dir or (args.out / "_archives")
+    manifest_path = args.out / "_manifest.json"
+    args.out.mkdir(parents=True, exist_ok=True)
+    manifest = load_manifest(manifest_path)
     for season, season_scenes in plan.items():
         for archive in archive_names(season):
+            if archive_done(manifest, archive):
+                done = manifest["archives"][archive]
+                print(f"{archive}: already done ({done.get('files')} files), skipping")
+                continue
+            manifest["archives"][archive] = {
+                "status": "in_progress",
+                "started": _now(),
+                "scenes": sorted(season_scenes) if season_scenes else None,
+            }
+            save_manifest(manifest_path, manifest)
             if args.stream or args.split == "test":
-                stream_extract(archive, args.out, season_scenes)
+                n = stream_extract(archive, args.out, season_scenes)
             else:
                 path = download(archive, archive_dir)
-                if not args.skip_extract:
-                    extract(path, args.out, season_scenes)
+                n = extract(path, args.out, season_scenes) if not args.skip_extract else -1
+            manifest["archives"][archive].update(
+                {"status": "done", "files": n, "finished": _now()}
+            )
+            save_manifest(manifest_path, manifest)
 
     # The dataset class scans <out>/*_s1/s1_*/*.tif; fail loudly here rather
     # than late in training if the archive layout ever changes upstream.
