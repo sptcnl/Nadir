@@ -230,6 +230,23 @@ def main() -> None:
         " throughput (~2-4 MB/s measured from this host), so 3 workers"
         " roughly triples aggregate speed on a faster line",
     )
+    parser.add_argument(
+        "--transport",
+        choices=["stream", "download"],
+        default=None,
+        help="stream: extract on the fly, no archive on disk, but a dropped"
+        " connection restarts the archive from zero. download: store the"
+        " .tar.gz with HTTP-Range resume (drops only cost a resume), then"
+        " extract locally — required in practice for the 35-49 GB archives,"
+        " which rarely survive a 2-3h stream. Default: stream for --split"
+        " test / --stream, download otherwise",
+    )
+    parser.add_argument(
+        "--delete-archives",
+        action="store_true",
+        help="with --transport download: delete each .tar.gz after successful"
+        " extraction (integrity gate still applies to extracted rasters)",
+    )
     args = parser.parse_args()
 
     if args.list:
@@ -285,14 +302,22 @@ def main() -> None:
                 "scenes": sorted(scenes) if scenes else None,
             }
             save_manifest(manifest_path, manifest)
+        use_stream = (
+            args.transport == "stream"
+            if args.transport
+            else (args.stream or args.split == "test")
+        )
         last_error: Exception | None = None
         for attempt in range(1, 6):
             try:
-                if args.stream or args.split == "test":
+                if use_stream:
                     n = stream_extract(archive, args.out, scenes)
                 else:
                     path = download(archive, archive_dir)
                     n = extract(path, args.out, scenes) if not args.skip_extract else -1
+                    if args.delete_archives:
+                        path.unlink()
+                        print(f"{archive}: archive deleted after extraction")
                 break
             except Exception as err:  # noqa: BLE001 — network/tar errors alike
                 last_error = err
