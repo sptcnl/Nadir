@@ -35,3 +35,6 @@ checkpoints/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local Claude settings
+.claude/settings.local.json
