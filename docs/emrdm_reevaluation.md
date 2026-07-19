@@ -24,6 +24,92 @@ patches). Downloaded via `python scripts/download_data.py --split test`
 ~31 GB). The actual extracted patch count will be recorded here and checked
 against 7,899; a mismatch is itself a finding about split ambiguity.
 
+### 2.1 Data-acquisition finding: `ROIs1868_summer_s2.tar.gz` is corrupt on the TUM mirror (2026-07-19)
+
+11 of the 12 season archives streamed/downloaded cleanly. The 12th,
+`ROIs1868_summer_s2.tar.gz` (the summer **clear** optical, 40,141,465,440 B),
+has a **stable ~2 MB unreadable region at byte offset 16,609,967,160
+(~15.84 GB, 41 % into the archive)** on the only distribution source
+(dataserv.ub.tum.de — HTTP, FTP, and rsync all read the same backend; no
+HuggingFace/Zenodo/Kaggle mirror of the raw season archives exists).
+
+Evidence (all measured, scripts in scratch):
+- Every transport — HTTP streaming, HTTP `download` with Range resume, and
+  rsync (`--append`, `--inplace` delta) — halts at exactly 16,609,967,160 B.
+- Range probes: bounded windows at OFF−32 MB and OFF+2 MB … OFF+32 MB return
+  `206` with full payload; the band **[OFF, OFF+2 MB)** returns `303`→timeout.
+- Fine map (1 MB windows): dead = exactly [OFF, OFF+2 MB); readable from
+  OFF+2 MB onward.
+- Hammer test (256 KB windows × 8 retries = 64 attempts across the 2 MB):
+  **0/64 recovered** → stable server-side corruption, not transient.
+
+Because gzip is a single continuous stream, this 2 MB gap makes everything
+after 15.84 GB undecodable by a normal `gunzip`. Decoding the readable
+prefix `[0, OFF)` recovers the tar members stored in the first 41 %:
+- summer test scene **119: clear 782/782 patches recovered** ✓
+- summer test scene **73: 0 patches** (its members are stored past the gap).
+
+**Impact:** the summer-73 clear targets (783 patches, ~10 % of the 7,899-patch
+test set) are the only missing data; the other 9 test scenes are complete.
+
+**This is itself a §5.1-class reproducibility finding:** the distribution
+infrastructure of a widely-cited public benchmark is itself a reproducibility
+variable — a bit-rotted archive on the sole mirror silently blocks exact
+reproduction of the published 7,899-patch number. Recorded, not smoothed over.
+
+**Recovery in progress (chosen path):** download the servable tail
+`[OFF+2 MB, END)` in bounded windows, zero-fill the 2 MB gap, and run
+`gzrecover` (gzip recovery toolkit — finds deflate block boundaries after a
+corrupt region) to recover scene-73 members past the gap. **Recovery is
+gated, not trusted** (§2.2): recovered summer-73 patches are validated
+(count vs 783, 13 bands, uint16, value range); patches straddling the gap
+that cannot be recovered are identified, dropped, and counted. The Arm A
+gate is then built on `7899 − N` surviving patches with `N` stated exactly —
+never rounded back to 7,899. Fallback if recovery/validation fails: §2.3
+(9-scene internal-consistency validation).
+
+### 2.2 Scene-73 recovery pipeline and validation gate
+
+Steps (scripts in `scripts/reeval/`):
+1. **Tail download** — fetch `[OFF+2 MB, 40,141,465,440)` (~23.5 GB) in
+   bounded 256 MB range windows (bounded windows past the gap serve
+   reliably; open-ended resume ranges are what wedge the gateway).
+   Resumable, per-window retry.
+2. **Assemble** — `prefix[0,OFF)` + `2 MB zeros` + `tail` → a full-length
+   archive with a zeroed 2 MB gap.
+3. **`gzrecover`** the assembled archive → a decompressed byte stream that
+   resyncs to deflate block boundaries after the zeroed gap.
+4. **Extract** `ROIs1868_summer_s2/s2_73/*` from the recovered stream
+   (`tar --ignore-zeros`).
+5. **Validation gate (nothing trusted without it):**
+   - recovered scene-73 clear count vs the S1 reference (783);
+   - every recovered patch: 13 bands, uint16, 256×256, plausible reflectance
+     range (reuse `verify_extraction.py` semantics);
+   - **cross-check against the cloudy pair**: each recovered clear patch must
+     have its `s2_cloudy_73` and `s1_73` partners (already on disk) — orphans
+     are dropped;
+   - patches that gzrecover cannot reconstruct (those straddling the gap) are
+     listed by patch id and **dropped**, and the count `N` is recorded here
+     and in `protocol.md`.
+6. **Gate assembly** — Arm A runs on `7899 − N` patches; the reproduced
+   aggregate is compared to a re-derivation of EMRDM's expected value on the
+   **same** surviving-patch set (their inference over the identical set, not
+   the published 7,899-average), so the tolerance comparison stays valid on a
+   reduced set. `N` and the exact patch count are stated in every reported
+   number.
+
+### 2.3 Fallback: 9-scene internal-consistency validation
+
+If recovery or its validation gate fails, Arm A cannot reproduce the
+published 7,899-patch number at all. The fallback re-scopes the deliverable
+honestly: run **both** our harness and EMRDM's own code over the 9 complete
+scenes (7,116 patches) and show they agree to the pre-registered tolerances.
+The claim becomes **"our harness == EMRDM's code"** (internal consistency),
+NOT "we reproduced the paper's 5.267 over the full set" — the latter is
+explicitly deferred and recorded as blocked by §2.1 corruption. This still
+validates the harness at scale, which is all Arm B needs: H1 (B1) is a
+*delta* measurement (VH −25 vs −32.5), valid on any fixed patch set.
+
 ## 3. Arm A — control: EMRDM verbatim
 
 Everything theirs: released SEN12MS-CR weights, their inference code, their
