@@ -17,7 +17,10 @@ OFF=16609967160
 HOLE=2097152
 ARCHIVE_END=40141465440
 
-command -v gzrecover >/dev/null || { echo "FAIL: gzrecover not installed (apt install gzrt)"; exit 3; }
+GZRECOVER="${GZRECOVER:-$HOME/.local/bin/gzrecover}"
+command -v "$GZRECOVER" >/dev/null || command -v gzrecover >/dev/null || {
+  echo "FAIL: gzrecover not found (apt download gzrt + dpkg-deb -x, or apt install gzrt)"; exit 3; }
+command -v "$GZRECOVER" >/dev/null || GZRECOVER=gzrecover
 
 prefix_sz=$(stat -c %s "$PREFIX")
 tail_sz=$(stat -c %s "$TAIL")
@@ -33,16 +36,16 @@ asm_sz=$(stat -c %s "$ASSEMBLED")
 [ "$asm_sz" -eq "$ARCHIVE_END" ] || { echo "FAIL: assembled $asm_sz != $ARCHIVE_END"; exit 1; }
 echo "assembled full-length archive: $asm_sz B"
 
-# gzrecover writes <name>.recovered (a raw tar stream with the corrupt region
-# skipped). Then extract only the summer-73 clear members.
-echo "running gzrecover (this reads all 40GB; slow)..."
-gzrecover -o "$ARC_DIR/summer_s2_recovered.tar" "$ASSEMBLED"
-echo "extracting ROIs1868_summer_s2/s2_73/* from recovered tar..."
-tar -xf "$ARC_DIR/summer_s2_recovered.tar" --ignore-zeros --warning=no-unknown-keyword \
-  -C "$ROOT" 'ROIs1868_summer_s2/s2_73/*' 2>/dev/null || true
+# gzrecover -p pipes the recovered tar stream to stdout (resyncs to deflate
+# block boundaries after the zeroed gap), so we extract scene-73 members
+# without ever writing the full ~50GB decompressed tar to disk.
+echo "running gzrecover -p | tar (reads all 40GB; slow)..."
+"$GZRECOVER" -p "$ASSEMBLED" 2>/dev/null | \
+  tar -x --ignore-zeros --warning=no-unknown-keyword \
+    -C "$ROOT" 'ROIs1868_summer_s2/s2_73/*' 2>/dev/null || true
 
 n73=$(ls "$ROOT/ROIs1868_summer_s2/s2_73/"*.tif 2>/dev/null | wc -l)
 echo "RECOVERED scene 73 clear patches: $n73 (reference 783)"
-# Clean the large intermediates; keep prefix+tail for re-runs.
-rm -f "$ASSEMBLED" "$ARC_DIR/summer_s2_recovered.tar"
+# Clean the 40GB assembled intermediate; keep prefix+tail for re-runs.
+rm -f "$ASSEMBLED"
 echo "RECOVERY_DONE n73=$n73"
