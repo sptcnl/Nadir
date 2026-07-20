@@ -229,6 +229,50 @@ runs on the seed-0 predictions unaffected. (Gate 0's stated worry — "if the
 two inferences produce different predictions the comparison is meaningless"
 — applies to inference-vs-inference, which Gate 1 does not do.)
 
+### 2.3.2a SAM value reconciliation (three numbers, one config)
+
+Three SAM values appeared and must be reconciled BEFORE Gate 1. The apparent
+5.638 → 7.943 "2.3° gap" is **entirely a patch-set difference, not a config
+difference** — traced exhaustively:
+
+| Value | Run | Patch set | Seed |
+|---|---|---|---|
+| **5.6378°** | Arm A `main.py` | all 9 scenes, **7,116** | 3407 |
+| **5.6516°** | replica (gate 0 pool) | all 9 scenes, **7,116** | 0 |
+| **7.943°** | determinism spot-check | **winter-63 only, 60 patches** | 3407 |
+
+Config diff of the 5.638 vs 7.943 runs — checked line by line, everything
+identical except the patch set:
+- **Preprocessing:** both `SEN12MSCRInterface` default (S2 [0,10000]→[0,1]→
+  [-1,1]; S1 [-25,0]) — identical.
+- **Sampler:** byte-identical (`num_steps 5, s_churn 5.0, s_tmin 0, s_tmax
+  1e8, s_noise 1.023, sigma_min 0.001, sigma_max 100`), EMA on — identical.
+- **Seed:** both 3407 — identical.
+- **Patch set:** 7,116 (all 9 scenes) vs 60 (winter-63 partial) — **the sole
+  difference.**
+
+Why a 60-patch winter subset reads 7.943 while the full set reads 5.64:
+**per-scene SAM ranges 2.48°–10.60°** (replica seed 0), and winter-63 is a
+hard ~8° scene:
+
+| scene | n | SAM° | | scene | n | SAM° |
+|---|---|---|---|---|---|---|
+| spring 106 | 784 | 2.48 | | spring 123 | 781 | 5.41 |
+| spring 31 | 784 | 3.43 | | winter 108 | 783 | 6.73 |
+| fall 139 | 784 | 3.75 | | **winter 63** | 784 | **8.05** |
+| spring 140 | 850 | 5.06 | | spring 44 | 784 | 10.60 |
+| summer 119 | 782 | 5.41 | | | | |
+
+The **patch-weighted mean of these nine = 5.6516°**, exactly the replica's
+7,116 pooled aggregate. winter-63's full 784 patches = 8.05° (seed 0); the
+60-patch seed-3407 spot-check = 7.943° — the same hard scene, sub-sampled.
+**There is no unexplained discrepancy: 7.943 was never a full-set number.**
+
+**Confirmed "correct Arm A" = the full 7,116-patch aggregate** (5.6378°
+main.py / 5.6516° replica; the 0.014° gap is the seed sensitivity of §2.3.2).
+**Gate 1 proceeds on the full 7,116 seed-0 predictions** (all 9 scenes) —
+never on the winter-63 spot-check.
+
 ### 2.3.3 Gate 1 — harness vs EMRDM code, internal consistency (running)
 
 *(EMRDM `img_metrics` vs Nadir harness on the identical seed-0 predictions,

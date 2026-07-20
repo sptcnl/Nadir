@@ -264,6 +264,27 @@ The project's contribution is deliberately located elsewhere:
    best claims cannot currently be placed on one scale. Its output also
    fixes the coordinate system in which our own model's numbers must be
    read — before we train anything.
+   1a. **Undeclared-convention audit (running list).** The re-evaluation
+   keeps surfacing settings that materially move the reported metrics yet
+   are disclosed by no paper's text — each individually larger than the
+   inter-method margins these tables use to rank methods:
+   - **SAR VH clipping** −25 vs −32.5 dB (DB-CR vs EMRDM default) — audit
+     target of hypothesis H1;
+   - **TF32** on/off (undeclared, architecture-dependent) — measured
+     immaterial here (ΔSAM 0.0017°, `emrdm_reevaluation.md` §7.2/3c) but
+     only because we checked;
+   - **SSIM implementation** (Po-Hsun-Su gaussian-11 vs skimage vs 255-scale)
+     — cross-convention Δ up to 0.06, 3× the reported SSIM margins
+     (`design_decisions.md` §2.3);
+   - **Stochastic-sampler single-value reporting (new, 2026-07-20).** EMRDM's
+     released sampler is stochastic (`s_churn=5.0`, `s_noise=1.023`), so its
+     SEN12MS-CR metrics are **seed-dependent** (measured ≈0.014° SAM across
+     seeds on 7,116 patches; `emrdm_reevaluation.md` §2.3.2). Reporting a
+     single SAM (5.267) without a seed or a variance is therefore
+     under-specified; performance should be a seed distribution. DB-CR and
+     others likewise report point values with no seed/variance disclosure.
+   The audit itself — quantifying these and declaring Nadir's own choices in
+   `protocol.md` — is a deliverable independent of our model.
 2. **Evaluation protocol:** mask-split (full/cloud/clear) reporting of
    SAM-first metrics. Published tables (incl. EMRDM's) report full-image
    averages, which §2's own logic says can hide clear-pixel copying.
