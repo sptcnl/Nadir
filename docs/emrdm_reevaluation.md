@@ -135,6 +135,63 @@ explicitly deferred and recorded as blocked by §2.1 corruption. This still
 validates the harness at scale, which is all Arm B needs: H1 (B1) is a
 *delta* measurement (VH −25 vs −32.5), valid on any fixed patch set.
 
+### 2.3.1 Arm A result on the 9-scene set (EMRDM code, 2026-07-20)
+
+EMRDM's released weights through **their own test loop** (`main.py --base
+<sentinel-derived> --enable_tf32 -t false`, single GPU, NFE=5, EMA), on the
+7,116-patch set (their loader auto-excluded the incomplete summer-73 triplet
+— dataloader built exactly 7,116, matching our count):
+
+| Metric | 9-scene (7,116) | Paper (7,899) | Δ (9-scene − paper) |
+|---|---|---|---|
+| PSNR | 31.4795 | 32.1354 | **−0.656 dB** |
+| SAM | 5.6378° | 5.2666° | **+0.371°** |
+| SSIM | 0.91916 | 0.92445 | **−0.0053** |
+| MAE | 0.019385 | 0.018327 | **+0.00106** |
+
+**Paper-value comparison (reference only — NOT a reproduction claim).** The
+9-scene numbers are on a different, smaller patch set and are **not directly
+comparable** to the published 7,899-patch averages. Not asserted as
+reproduction; recorded side-by-side only.
+
+**Seasonal-composition bias — observation + hypothesis (fixed here BEFORE
+H1, per the confound concern).** All four metrics move the *same* direction
+(worse than paper: PSNR↓ SAM↑ SSIM↓ MAE↑). Four-for-four coherence is
+unlikely to be pure sampling noise; it points to a composition shift from
+dropping summer scene 73:
+
+| Season | Full 10-scene | 9-scene (realized) |
+|---|---|---|
+| spring | 3,983 (50.4%) | 3,983 (**56.0%**) |
+| summer | 1,565 (19.8%) | 782 (**11.0%**) |
+| fall | 784 (9.9%) | 784 (11.0%) |
+| winter | 1,567 (19.8%) | 1,567 (22.0%) |
+
+Dropping summer-73 **halves the summer share** (19.8%→11.0%) and raises
+spring/winter/fall. *Hypothesis (not asserted):* summer scenes — vegetated,
+clearer atmosphere, higher illumination — tend to be the easier cloud-removal
+targets, so halving summer and over-weighting spring/winter yields a
+**harder evaluation set**, consistent with all four metrics degrading. This
+is an *observation with a plausible mechanism*, not a proven cause; subset
+variance alone is not excluded.
+
+**Consequence flagged for H1 (Arm B / B1).** H1 measures the VH-clipping
+(−25 vs −32.5) SAM delta on this same 7,116 set. If seasonal composition
+influences that delta (e.g. SAR backscatter dynamic range differs by
+season/land-cover), the "VH effect" H1 isolates could carry a seasonal
+confound. Recording the composition here, before running H1, so its result
+can be read with this confound in view (e.g. by also reporting the delta
+per season). **This bias affects absolute values only; it does NOT affect
+the §2.3.2 internal-consistency gate**, which compares two metric
+implementations on the *identical* prediction set — agreement is
+composition-independent.
+
+### 2.3.2 Internal-consistency gate (running)
+
+*(EMRDM `img_metrics` vs Nadir harness on identical predictions across the
+9 scenes; pre-registered tolerances SAM ±0.05° / PSNR ±0.10 / SSIM ±0.005 /
+MAE ±0.001. Result filled on completion.)*
+
 ## 3. Arm A — control: EMRDM verbatim
 
 Everything theirs: released SEN12MS-CR weights, their inference code, their
