@@ -186,11 +186,54 @@ the §2.3.2 internal-consistency gate**, which compares two metric
 implementations on the *identical* prediction set — agreement is
 composition-independent.
 
-### 2.3.2 Internal-consistency gate (running)
+### 2.3.2 Gate 0 — reproduction determinism (2026-07-20)
 
-*(EMRDM `img_metrics` vs Nadir harness on identical predictions across the
-9 scenes; pre-registered tolerances SAM ±0.05° / PSNR ±0.10 / SSIM ±0.005 /
-MAE ±0.001. Result filled on completion.)*
+Before any harness comparison: is EMRDM inference deterministic? Two facts,
+separated:
+
+1. **Deterministic given a fixed seed — PROVEN.** `emrdm_infer_scene.py` run
+   **twice with identical config** (seed 3407, TF32 on, winter-63/60 patches)
+   produced **byte-identical per-patch metrics** (SAM 7.943093 == 7.943093).
+   No hidden nondeterminism (TF32 tensor-core ops, cuDNN, etc.).
+2. **Stochastic across seeds — the sampler injects noise.** The released
+   sampler is `ResidualEulerEDMSampler` with **`s_churn=5.0`, `s_noise=1.023`
+   → stochastic**, not a deterministic ODE. So the *seed* (and the RNG
+   consumption pattern) changes the result.
+
+Consequence: the prediction-saving pass (my replica, seed 0, per-scene RNG
+reset) and the authoritative Arm A `main.py` run (seed **3407** — its default,
+confirmed in the log "Seed set to 3407"; continuous RNG over all 7,116
+patches) are **two different valid random draws**, and their 7,116-aggregates
+differ accordingly:
+
+| Metric | replica (seed 0) | main.py (seed 3407) | Δ |
+|---|---|---|---|
+| SAM | 5.6516° | 5.6378° | 0.0138° |
+| PSNR | 31.4672 | 31.4795 | 0.0123 |
+| SSIM | 0.91905 | 0.91916 | 0.00012 |
+| MAE | 0.019397 | 0.019385 | 0.000012 |
+
+**Verdict:** NOT bit-identical to main.py — but the cause is *traced and
+benign*: stochastic sampler (`s_churn=5.0`) sampled under a different seed
+(0 vs 3407) and RNG stream (per-scene reset vs continuous). This is **not a
+determinism bug** (proven identical given a fixed seed); it is a
+**reproducibility finding in its own right — EMRDM's reported SEN12MS-CR
+metrics are seed-sensitive at ≈0.014° SAM (7,116 aggregate); the published
+5.267 is one seed's realization**, which no paper table discloses.
+
+**Why Gate 1 remains valid.** Gate 1 does not compare two *inferences*; it
+scores **one** saved prediction set with two *metric implementations*
+(EMRDM `img_metrics` vs Nadir harness). Agreement of two metric
+implementations on the *identical* image is seed-independent, so Gate 1
+runs on the seed-0 predictions unaffected. (Gate 0's stated worry — "if the
+two inferences produce different predictions the comparison is meaningless"
+— applies to inference-vs-inference, which Gate 1 does not do.)
+
+### 2.3.3 Gate 1 — harness vs EMRDM code, internal consistency (running)
+
+*(EMRDM `img_metrics` vs Nadir harness on the identical seed-0 predictions,
+pooled over 7,116 patches; pre-registered tolerances SAM ±0.05° / PSNR
+±0.10 / SSIM ±0.005 / MAE ±0.001. Result filled on completion.)*
 
 ## 3. Arm A — control: EMRDM verbatim
 
