@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import re
 import sys
 import tarfile
@@ -247,6 +248,14 @@ def main() -> None:
         help="with --transport download: delete each .tar.gz after successful"
         " extraction (integrity gate still applies to extracted rasters)",
     )
+    parser.add_argument(
+        "--reclaim-pause",
+        type=int,
+        default=0,
+        help="seconds to sync+sleep after deleting each archive, so the WSL2"
+        " sparse-vhdx reclaim returns its blocks to the host before the next"
+        " archive is fetched (keeps physical residency at one archive)",
+    )
     args = parser.parse_args()
 
     if args.list:
@@ -318,6 +327,13 @@ def main() -> None:
                     if args.delete_archives:
                         path.unlink()
                         print(f"{archive}: archive deleted after extraction")
+                        if args.reclaim_pause:
+                            # Give WSL2's sparse-vhdx reclaim (~30s, measured)
+                            # a window to return the deleted archive's blocks to
+                            # the host BEFORE the next archive grows the vhdx —
+                            # so physical residency stays at one archive, not two.
+                            os.sync()
+                            time.sleep(args.reclaim_pause)
                 break
             except Exception as err:  # noqa: BLE001 — network/tar errors alike
                 last_error = err
