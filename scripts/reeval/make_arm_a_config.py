@@ -50,6 +50,16 @@ def main() -> None:
         if split in cfg["data"]["params"]:
             cfg["data"]["params"][split]["params"]["root"] = root
 
+    # 3) machine fit: single local GPU (their config targets a 2-GPU cluster),
+    # and disable the training-time image logger during test.
+    lightning = cfg.get("lightning", {})
+    trainer = lightning.setdefault("trainer", {})
+    trainer["devices"] = "0,"  # main.py parses this as a string: .strip(",").split(",")
+    trainer["num_nodes"] = 1
+    cbs = lightning.get("callbacks", {})
+    if "image_logger" in cbs:
+        cbs["image_logger"].setdefault("params", {})["disabled"] = True
+
     # Assert nothing else drifted from the released numbers-affecting config.
     sampler_cfg = cfg["model"]["params"]["sampler_config"]
     sampler = sampler_cfg["params"]
