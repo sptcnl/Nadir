@@ -82,6 +82,16 @@ canonical split (train/val/test scene sets are disjoint distinct ROIs).
 698 = 122,218/175); actual counts get recorded in the download manifest.
 The ~20k train target is met in expectation, not guaranteed per-scene.
 
+**Realized test extraction (2026-07-20):** 9 of 10 test scenes complete =
+**7,116 triplets**; summer scene **73 = 783 clear patches lost to a
+server-side 2 MB corruption** in `ROIs1868_summer_s2.tar.gz`
+(`emrdm_reevaluation.md` §2.1/§2.2.1 — unrecoverable, no mirror). Per-scene
+complete counts: spring 106=784, 123=781, 140=850, 31=784, 44=784; summer
+119=782; fall 139=784; winter 63=784, 108=783. **7,116 + 783 = 7,899**
+matches DB-CR's stated test count, confirming the canonical split. All
+re-evaluation numbers are reported over the exact realized count (7,116),
+never rounded up to 7,899.
+
 **Rejected alternative (recorded 2026-07-16):** a val reduction to 1 scene
 per season (~11 GB instead of ~27 GB) was proposed to protect the C:-drive
 90% budget line. **Rejected on protocol-integrity grounds:** letting a disk

@@ -51,7 +51,8 @@ def main() -> None:
             cfg["data"]["params"][split]["params"]["root"] = root
 
     # Assert nothing else drifted from the released numbers-affecting config.
-    sampler = cfg["model"]["params"]["sampler_config"]["params"]
+    sampler_cfg = cfg["model"]["params"]["sampler_config"]
+    sampler = sampler_cfg["params"]
     assert sampler["num_steps"] == 5, "num_steps changed — not a faithful Arm A"
     assert cfg["model"]["params"]["use_ema"] is True, "EMA off — not faithful"
     assert cfg["data"]["params"]["test"]["params"]["rescale"] is True
@@ -62,7 +63,7 @@ def main() -> None:
     print(f"wrote Arm A config -> {out}")
     print(f"  ckpt   = {cfg['model']['params']['ckpt_path']}")
     print(f"  root   = {root}")
-    print(f"  sampler= {sampler['target'].split('.')[-1]} num_steps={sampler['num_steps']}")
+    print(f"  sampler= {sampler_cfg['target'].split('.')[-1]} num_steps={sampler['num_steps']}")
 
 
 if __name__ == "__main__":

@@ -98,7 +98,32 @@ Steps (scripts in `scripts/reeval/`):
    reduced set. `N` and the exact patch count are stated in every reported
    number.
 
-### 2.3 Fallback: 9-scene internal-consistency validation
+### 2.2.1 Recovery OUTCOME (2026-07-20): FAILED — scene 73 unrecoverable
+
+The tail `[OFF+2 MB, END)` downloaded cleanly (23,529,401,128 B, exact).
+`gzrecover` was run to completion on the assembled `prefix + 2 MB zeros +
+tail`. Result: the recovered tar tops out at **24 GB — exactly the
+pre-gap content** (decompressed prefix; contains summer scenes up to the
+gap incl. s2_119 and s2_27), and **s2_73 is absent** from the full output.
+gzrecover decoded the pre-gap stream but **could not resync DEFLATE after
+the 2 MB gap** — deflate is stateful (32 KB sliding window + Huffman
+tables), and the lost 2 MB destroys the state needed to decode any
+subsequent block; a block-boundary search cannot reconstruct it. This is a
+fundamental property, not a tuning problem: scene-73's clear targets are
+**unrecoverable from this mirror**. (Two premature kills on misread progress
+signals cost time but did not change the outcome — the completed run
+confirms 24 GB/pre-gap-only.)
+
+Confirmed data state (2026-07-20): **9 of 10 test scenes complete = 7,116
+triplets** (spring 31/44/106/123/140, summer 119, fall 139, winter 63/108);
+summer **73 = 783 patches missing** (clear=0; s1 & cloudy present).
+**7,116 + 783 = 7,899** — exactly DB-CR's stated test count, which
+independently confirms the split is the canonical UnCRtainTS one.
+Recovery intermediates (tail/assembled/recovered tar, ~88 GB) reclaimed.
+
+→ Proceeding with the §2.3 fallback.
+
+### 2.3 Fallback: 9-scene internal-consistency validation (ACTIVE)
 
 If recovery or its validation gate fails, Arm A cannot reproduce the
 published 7,899-patch number at all. The fallback re-scopes the deliverable
