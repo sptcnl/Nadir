@@ -605,6 +605,75 @@ fixed in §2.3.2a means a season-varying VH effect is itself a result.
 (~24 min each). No subsampling: the per-season readout needs all 9 scenes.
 Any deviation (fewer seeds, subset) will be logged, not silently taken.
 
+### 5.2 H1 RESULT (executed 2026-07-20): **SUPPORTED** — first standalone finding
+
+6/6 passes complete (54 scene-runs). SAM via EMRDM `img_metrics` (their
+convention, comparable to 4.740/5.267). `VHeff = SAM(vh325) − SAM(vh25)`,
+paired per seed:
+
+| Seed | SAM vh25 | SAM vh325 | VHeff |
+|---|---|---|---|
+| 3407 | 5.6514 | 6.4858 | +0.8344 |
+| 0 | 5.6516 | 6.4686 | +0.8171 |
+| 42 | 5.6509 | 6.4908 | +0.8400 |
+| **mean** | | | **+0.8305°** |
+
+**(1) Primary result.** `mean VHeff = +0.8305°` over the 9-scene 7,116-patch
+set. Pre-registered rule `|mean| > 0.527° AND |mean| > sd` → **H1 SUPPORTED**:
+one undeclared preprocessing constant (S1 VH clip −25 → −32.5 dB) moves SAM
+by more than the entire 0.527° DB-CR↔EMRDM gap. First standalone finding
+(§5.1).
+
+**(2) Seed consistency = measurement health.** seed **sd = 0.0119°** across
+{3407, 0, 42}; the VH effect is **69× the seed noise**. Crucially this
+0.0119° independently matches **Gate 0's separately-observed ≈0.014° seed
+floor** (§2.3.2) — two different experiments pointing at the same noise
+floor is evidence the measurement is healthy, not that the effect is noise.
+
+**(3) Seasonal dependence AND reweighting — both, to avoid misreading.**
+Per-season VHeff (the §2.3.2a confound flag was real):
+
+| season | VHeff | vs 0.527° gap |
+|---|---|---|
+| spring | +1.0712 | above |
+| winter | +0.6589 | above |
+| fall | +0.4892 | below |
+| summer | +0.2904 | below |
+
+Only spring and winter individually exceed the gap; fall and summer do not.
+The direction of the bias, stated unambiguously:
+- **0.8305° = the actual 9-scene aggregate** (our set is spring-heavy: 56%
+  spring vs 50.4% in the full 10-scene split, from the summer-73 loss).
+  Spring has the *largest* VHeff (1.07), so the spring-heaviness **inflates**
+  the aggregate.
+- **0.777° = the same VHeff reweighted to the full 10-scene season
+  proportions** (restores summer's 19.8%, whose low 0.29 pulls the mean
+  down).
+- So bias-corrected **0.777° → 0.831° biased** (correction *lowers* it).
+  **Both exceed 0.527°.** The finding is therefore **not an artifact of the
+  seasonal bias** — remove the bias and it still holds.
+
+**(4) Scope of the finding — held tight.** This is a measurement on
+**EMRDM's released weights, the 9-scene (spring-heavy) 7,116-patch set, and
+3 seeds**. It shows: *under these conditions, changing only the VH clip moves
+SAM by more than the DB-CR↔EMRDM gap.* It does **not** claim generalization
+to the full 7,899-patch set, to other models, or to a −32.5-trained model.
+Honest caveats:
+- *Direction.* −32.5 gives *higher* (worse) SAM on EMRDM's −25-trained
+  weights; DB-CR (−32.5) reports *lower* SAM than EMRDM. So this does NOT
+  reproduce or explain DB-CR's number — H1 pre-registered a **sensitivity
+  magnitude**, and that is what is shown.
+- *Train/test mismatch.* Feeding −32.5 inputs to −25-trained weights makes
+  part of the 0.8° out-of-distribution degradation. That IS the point:
+  papers disclose neither the clip their weights assume nor the metric's
+  sensitivity to it. Fragility demonstration, not a −32.5-trained score.
+- *SAM only.* B1's PSNR/MAE/SSIM shifts are exploratory, not gated by H1.
+
+This first result directly evidences the §5.1 undeclared-convention thesis:
+the VH clip joins TF32 (measured immaterial), SSIM implementation, and
+stochastic-seed reporting as knobs that move published numbers by more than
+the margins used to rank methods.
+
 ## 6. Execution architecture (dependency isolation, binding per protocol.md §7)
 
 ```

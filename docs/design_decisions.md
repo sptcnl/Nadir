@@ -268,8 +268,13 @@ The project's contribution is deliberately located elsewhere:
    keeps surfacing settings that materially move the reported metrics yet
    are disclosed by no paper's text — each individually larger than the
    inter-method margins these tables use to rank methods:
-   - **SAR VH clipping** −25 vs −32.5 dB (DB-CR vs EMRDM default) — audit
-     target of hypothesis H1;
+   - **SAR VH clipping** −25 vs −32.5 dB (DB-CR vs EMRDM default) — **H1
+     CONFIRMED (2026-07-20, `emrdm_reevaluation.md` §5.2): this one constant
+     moves SAM by +0.83° on the actual (spring-heavy) 9-scene set — or
+     +0.78° reweighted to full-set season proportions — either way larger
+     than the entire 0.527° DB-CR↔EMRDM gap** (seed sd 0.012°). Scoped to
+     EMRDM weights / 9-scene / 3 seeds; no generalization claimed ⇒
+     cross-paper SAM ranking is not meaningful without protocol disclosure;
    - **TF32** on/off (undeclared, architecture-dependent) — measured
      immaterial here (ΔSAM 0.0017°, `emrdm_reevaluation.md` §7.2/3c) but
      only because we checked;
