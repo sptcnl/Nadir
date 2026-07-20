@@ -3,8 +3,8 @@ own img_metrics and the Nadir harness metrics over the SAME predictions across
 the 9 complete test scenes, and apply the pre-registered tolerances.
 
 Inputs are the per-scene CSVs produced by:
-  - emrdm_infer_scene.py  -> <scene>/metrics.csv   (their img_metrics: MAE,RMSE,PSNR,SAM,SSIM per patch)
-  - nadir_eval_preds.py   -> <scene>_nadir.csv     (our harness: SAM,PSNR,MAE,SSIM per patch)
+  - emrdm_infer_scene.py  -> <scene>/metrics.csv  (their img_metrics per patch)
+  - nadir_eval_preds.py   -> <scene>_nadir.csv    (our harness per patch)
 
 Aggregation matches EMRDM's on_test_epoch_end (unweighted mean of per-patch
 values), over all 7,116 patches pooled.
@@ -66,7 +66,8 @@ def main() -> None:
         sys.exit(f"patch-count mismatch: EMRDM {n_their} vs Nadir {n_ours}")
 
     print(f"pooled patches: {n_their}")
-    print(f"{'metric':6s} {'EMRDM code':>13s} {'Nadir harness':>14s} {'|delta|':>10s} {'tol':>7s}  verdict")
+    header = f"{'metric':6s} {'EMRDM':>13s} {'Nadir':>14s} {'|delta|':>10s} {'tol':>7s}  verdict"
+    print(header)
     result: dict[str, object] = {"n_patches": n_their, "metrics": {}}
     ok = True
     for m in ("PSNR", "SSIM", "SAM", "MAE"):
