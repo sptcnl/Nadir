@@ -38,6 +38,10 @@ def main() -> None:
     parser.add_argument("--tf32", choices=["on", "off"], required=True)
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--vh-clip", type=float, default=-25.0,
+        help="S1 VH lower clip bound in dB (B1: -25 default convention, -32.5 DB-CR)",
+    )
     parser.add_argument("--limit", type=int, default=0, help="0 = all patches")
     parser.add_argument("--save-preds", action="store_true", help="write uint16 .npz predictions")
     args = parser.parse_args()
@@ -51,6 +55,32 @@ def main() -> None:
     from sgm.data.sentinel.sentinel import process_MS, process_SAR, read_img, read_tif
     from sgm.modules.learning.metrics import img_metrics
     from sgm.util import instantiate_from_config
+
+    def process_sar_vh(img: np.ndarray, vh_min: float) -> np.ndarray:
+        """SAR preprocessing that changes ONLY the VH lower clip bound (B1).
+
+        VV (channel 0): clip [-25,0] -> [0,1] as (x+25)/25 — identical to the
+        released `default`. VH (channel 1): clip [vh_min,0] -> [0,1] as
+        (x-vh_min)/(-vh_min). At vh_min=-25 this reproduces `default` exactly
+        (asserted at startup); at vh_min=-32.5 it is the DB-CR VH convention.
+        The [0,1] scale and VV handling are untouched, so VH clip is the sole
+        changed factor (unlike EMRDM's `resnet` method, which also rescales to
+        [0,2]).
+        """
+        vv = np.clip(img[0], -25.0, 0.0)
+        vv = (vv + 25.0) / 25.0
+        vh = np.clip(img[1], vh_min, 0.0)
+        vh = (vh - vh_min) / (0.0 - vh_min)
+        out = np.stack([vv, vh], axis=0)
+        return np.nan_to_num(out)
+
+    # Regression: at vh_min=-25 the custom path must equal the released default.
+    _probe = np.stack([
+        np.array([[-30.0, -10.0], [0.0, 5.0]]),
+        np.array([[-40.0, -12.5], [-25.0, 1.0]]),
+    ])
+    assert np.allclose(process_sar_vh(_probe, -25.0), process_SAR(_probe, "default")), \
+        "custom VH-clip path diverges from released default at vh_min=-25"
 
     if args.tf32 == "on":  # replicate main.py --enable_tf32 (+ natten default)
         torch.backends.cuda.matmul.allow_tf32 = True
@@ -89,7 +119,10 @@ def main() -> None:
             s1_path.name.replace("_s1_", "_s2_cloudy_")
         )
         # SEN12MSCRInterface semantics: process_* -> [0,1], then *2-1.
-        s1 = torch.tensor(process_SAR(read_img(read_tif(str(s1_path))), "default")).float()
+        # B1: VH clip bound is args.vh_clip (default -25 == released default).
+        s1 = torch.tensor(
+            process_sar_vh(read_img(read_tif(str(s1_path))), args.vh_clip)
+        ).float()
         s2c = torch.tensor(process_MS(read_img(read_tif(str(s2c_path))), "default")).float()
         target = torch.tensor(process_MS(read_img(read_tif(str(s2_path))), "default")).float()
         batch = {
