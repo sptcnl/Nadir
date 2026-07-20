@@ -394,6 +394,19 @@ per-patch results exchanged as files. Declared per-patch tolerances:
 | RMSE | ≤ 1e-5 | identical formula (ad-hoc in our compare script) |
 | SSIM | **not gated** — measured & recorded; sanity bound ≤ 0.05 | different implementations by design: theirs `pytorch_ssim` (gaussian 11×11), ours skimage (uniform 7×7). The delta itself is a B2-type datum |
 
+**Why this SSIM exclusion earned its keep (2026-07-20).** At Gate 1
+(§2.3.3), the comparator script did *not* honor this pre-registration — it
+applied the §3 same-implementation SSIM tolerance (±0.005) to the
+cross-implementation comparison and returned **FAIL (Δ 0.0145)**. The
+metrics were correct; the two SSIM rulers simply differ (gaussian-11 vs
+uniform-7). Had this pre-registration not existed, that FAIL would have read
+as a harness defect (or, in the published-table setting, as a performance
+gap). This is the §5.1 undeclared-convention thesis reproduced *inside our
+own pipeline*: without knowing the implementations differ, one misreads two
+rulers as a result. The pre-registration here — committed 3.6 days before
+the run (`e15e85a`/`c38c289`; provenance table in §2.3.3) — is exactly what
+prevented the misread.
+
 Gate passes only if SAM/PSNR/MAE/RMSE are within tolerance for **every**
 patch. Failure ⇒ the harness (data loading, preprocessing, or metric
 implementation) is wrong; no inference runs until it is fixed.
@@ -552,6 +565,45 @@ Dependency note for B3: requires the real cloud-mask implementation
 Secondary readouts (no pre-registered thresholds, exploratory): B1's effect
 on PSNR/MAE/SSIM; B3's cloud-vs-clear SAM split (does the full-image SAM
 flatter the model via clear pixels?).
+
+### 5.1 H1 measurement design — PRE-REGISTERED 2026-07-20 (before any B1 run)
+
+Committed before measurement; the decision rule below may not be revised
+after seeing results (same discipline as §3 / the 3b gate).
+
+**Conditions (single-factor, B1 principle).** Two input preprocessings that
+differ **only** in the S1 VH lower clip bound; everything else identical
+(VV clip −25 dB, the same [0,1] rescale, same weights, same sampler, same
+9-scene 7,116-patch set, same seed policy = per-scene reset):
+- `vh25` — VH clip [−25, 0] (Arm A / EMRDM `default` convention);
+- `vh325` — VH clip [−32.5, 0] (DB-CR convention).
+
+**Seeds (stochastic-sampler control, ≥3).** Each condition is run at seeds
+**{3407, 0, 42}**. Because the sampler is stochastic (`s_churn=5.0`, Gate 0),
+a single-seed delta is confounded by ≈0.014° seed noise; the two conditions
+share the **same seed** within each pair so sampler noise cancels in the
+paired difference, and 3 seeds quantify the residual spread.
+
+**Statistic.** For seed *s*: `VHeff(s) = SAM_agg(vh325, s) − SAM_agg(vh25, s)`
+(paired). Report `mean_s VHeff`, `sd_s VHeff` (the seed-noise floor), and
+`VHeff` **per season** (spring/summer/fall/winter) — the seasonal confound
+fixed in §2.3.2a means a season-varying VH effect is itself a result.
+
+**Pre-registered decision rule (three outcomes, fixed now):**
+1. `|mean VHeff| > 0.527°` **and** `|mean VHeff| > sd_s VHeff` →
+   **H1 SUPPORTED**: one undeclared preprocessing constant moves SAM by more
+   than the entire DB-CR↔EMRDM gap ⇒ cross-paper SAM ranking is meaningless
+   without protocol disclosure.
+2. `sd_s VHeff < |mean VHeff| ≤ 0.527°` → **H1 REJECTED**: VH clipping does
+   move SAM, but by less than the paper gap ⇒ the protocol is more robust to
+   this constant than suspected. Reported as-is with the measured Δ.
+3. `|mean VHeff| ≤ sd_s VHeff` → **INCONCLUSIVE**: the VH effect is not
+   distinguishable from seed noise at 3 seeds; report the bound, do not
+   conclude.
+
+**Cost/coverage note.** 2 conditions × 3 seeds = 6 full 7,116-patch passes
+(~24 min each). No subsampling: the per-season readout needs all 9 scenes.
+Any deviation (fewer seeds, subset) will be logged, not silently taken.
 
 ## 6. Execution architecture (dependency isolation, binding per protocol.md §7)
 

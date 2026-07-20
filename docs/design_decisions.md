@@ -275,7 +275,17 @@ The project's contribution is deliberately located elsewhere:
      only because we checked;
    - **SSIM implementation** (Po-Hsun-Su gaussian-11 vs skimage vs 255-scale)
      — cross-convention Δ up to 0.06, 3× the reported SSIM margins
-     (`design_decisions.md` §2.3);
+     (`design_decisions.md` §2.3). **Reproduced inside our own pipeline
+     (2026-07-20):** the Gate-1 comparator, not following the 3b
+     pre-registration, compared theirs (`pytorch_ssim` gaussian-11) against
+     ours (skimage uniform-7) under a *same-implementation* tolerance
+     (±0.005) and returned FAIL (Δ 0.0145). The metrics were fine — the two
+     rulers simply differ. This is a live demonstration of the §5.1 thesis:
+     *unaware of the SSIM-implementation difference, one reads two
+     different rulers as a performance gap.* What caught it was the 3b
+     pre-registration (SSIM excluded, committed 3.6 days earlier,
+     `emrdm_reevaluation.md` §2.3.3) — the discipline, not luck, prevented
+     the misread;
    - **Stochastic-sampler single-value reporting (new, 2026-07-20).** EMRDM's
      released sampler is stochastic (`s_churn=5.0`, `s_noise=1.023`), so its
      SEN12MS-CR metrics are **seed-dependent** (measured ≈0.014° SAM across
