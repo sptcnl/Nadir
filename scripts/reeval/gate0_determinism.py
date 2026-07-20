@@ -61,7 +61,8 @@ def main() -> None:
         d = abs(rep - ref[m])
         passed = d <= DET_TOL[m]
         ok &= passed
-        print(f"{m:6s} {rep:13.6f} {ref[m]:13.6f} {d:11.6f} {DET_TOL[m]:8.4f}  {'PASS' if passed else 'FAIL'}")
+        verdict = "PASS" if passed else "FAIL"
+        print(f"{m:6s} {rep:13.6f} {ref[m]:13.6f} {d:11.6f} {DET_TOL[m]:8.4f}  {verdict}")
     if n != 7116:
         print(f"WARNING: replica pooled {n} patches, expected 7116")
     print("GATE0_DETERMINISTIC" if ok else "GATE0_NONDETERMINISTIC")
