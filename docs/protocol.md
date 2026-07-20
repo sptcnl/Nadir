@@ -92,6 +92,39 @@ matches DB-CR's stated test count, confirming the canonical split. All
 re-evaluation numbers are reported over the exact realized count (7,116),
 never rounded up to 7,899.
 
+### 4.2 DSen2-CR baseline training subset — FIXED [choice] (2026-07-20)
+
+Purpose is explicitly **"prove the model can be trained"** (loss converges,
+pipeline runs, baseline metrics emerge on a 16 GB GPU within a day) — **not**
+full training or SOTA reproduction. A small subset therefore suffices;
+over-fitting is acceptable and will be reported as such.
+
+Selection: **3 scenes, one per season, spring/fall/winter** (summer dropped
+— see below), from the §4.1 pre-registered train pool:
+
+| Season | Scene | Expected patches |
+|---|---|---|
+| spring | 6 | ~780 |
+| fall | 3 | ~780 |
+| winter | 8 | ~780 |
+| **total** | 3 scenes | **~2,300** |
+
+**Geographic disjointness (verified 2026-07-20, logged):** none of {spring 6,
+fall 3, winter 8} shares a (season, scene) ROI with the test 9-scene set
+{spring 31/44/106/123/140, summer 119, fall 139, winter 63/108} → no
+train/test leakage; baseline metrics are valid on that axis.
+
+**Summer dropped — reason recorded.** The pre-registered summer train scenes
+{7, 36, 40, 72, 76, 87, 143} are **all stored after the 15.84 GB corruption**
+in `ROIs1868_summer_s2.tar.gz` (verified 2026-07-20 by decoding the readable
+prefix locally: 0/7 candidates present; §2.1 of `emrdm_reevaluation.md`).
+Rather than step on a known-corrupt archive, summer is excluded; the summer
+archive is not touched at all (corruption risk = 0). A 3-season subset is
+sufficient for the pipeline-proof goal; seasonal completeness is not required
+here. If a fuller train set is ever needed, a pre-gap summer scene (e.g. one
+of {115, 121, 132, 133}, which decode cleanly from the prefix) can be added —
+but that is a new declared selection, not taken opportunistically now.
+
 **Rejected alternative (recorded 2026-07-16):** a val reduction to 1 scene
 per season (~11 GB instead of ~27 GB) was proposed to protect the C:-drive
 90% budget line. **Rejected on protocol-integrity grounds:** letting a disk
