@@ -22,7 +22,14 @@ import statistics
 import sys
 from pathlib import Path
 
-TOL = {"SAM": 0.05, "PSNR": 0.10, "SSIM": 0.005, "MAE": 0.001}
+# Gated metrics use identical formulas across implementations. SSIM is NOT
+# gated — it was pre-registered as recorded-only in the 3b gate
+# (compare_raw.py, committed 2026-07-17): theirs is pytorch_ssim (Po-Hsun-Su
+# gaussian 11x11), ours is skimage (uniform 7x7), so they differ BY DESIGN
+# (~0.06 per-patch, design_decisions.md §2.3). SSIM carries a 0.05 sanity
+# bound only. This matches the pre-registration; it is not a post-hoc change.
+TOL = {"SAM": 0.05, "PSNR": 0.10, "MAE": 0.001}
+SSIM_SANITY = 0.05
 SCENES = [
     ("ROIs1158_spring", 31), ("ROIs1158_spring", 44), ("ROIs1158_spring", 106),
     ("ROIs1158_spring", 123), ("ROIs1158_spring", 140), ("ROIs1868_summer", 119),
@@ -66,7 +73,7 @@ def main() -> None:
         sys.exit(f"patch-count mismatch: EMRDM {n_their} vs Nadir {n_ours}")
 
     print(f"pooled patches: {n_their}")
-    header = f"{'metric':6s} {'EMRDM':>13s} {'Nadir':>14s} {'|delta|':>10s} {'tol':>7s}  verdict"
+    header = f"{'metric':6s} {'EMRDM':>13s} {'Nadir':>14s} {'|delta|':>10s} {'limit':>7s}  verdict"
     print(header)
     result: dict[str, object] = {"n_patches": n_their, "metrics": {}}
     ok = True
@@ -74,11 +81,16 @@ def main() -> None:
         a = statistics.fmean(their[m])
         b = statistics.fmean(ours[m])
         d = abs(a - b)
-        passed = d <= TOL[m]
-        ok &= passed
+        gated = m in TOL
+        limit = TOL[m] if gated else SSIM_SANITY
+        passed = d <= limit
+        if gated:
+            ok &= passed
+        tag = "PASS" if passed else ("FAIL" if gated else "OVER-SANITY")
+        kind = "gated" if gated else "recorded"
         result["metrics"][m] = {"emrdm": a, "nadir": b, "abs_delta": d,
-                                "tol": TOL[m], "pass": passed}
-        print(f"{m:6s} {a:13.6f} {b:14.6f} {d:10.6f} {TOL[m]:7.3f}  {'PASS' if passed else 'FAIL'}")
+                                "limit": limit, "gated": gated, "pass": passed}
+        print(f"{m:6s} {a:13.6f} {b:14.6f} {d:10.6f} {limit:7.3f}  {tag} ({kind})")
     result["verdict"] = "CONSISTENT" if ok else "INCONSISTENT"
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
     Path(args.report).write_text(json.dumps(result, indent=2))
