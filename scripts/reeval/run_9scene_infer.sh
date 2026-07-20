@@ -12,6 +12,7 @@ EMRDM="$HOME/emrdm/EMRDM"
 CKPT="$HOME/emrdm/artifacts/sentinel/last.ckpt"
 ROOT="$HOME/data/sen12mscr"
 PY="$HOME/emrdm/venv/bin/python"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"  # this script's dir
 mkdir -p "$OUT"
 
 # 9 complete test scenes (season:scene)
@@ -21,9 +22,11 @@ export WANDB_MODE=offline
 for pair in $SCENES; do
   season="${pair%%:*}"; scene="${pair##*:}"
   echo "=== inferring $season scene $scene ===" | tee -a "$OUT/run.log"
-  "$PY" /mnt/c/Users/kimma/Desktop/Nadir/scripts/reeval/emrdm_infer_scene.py \
+  # seed 3407 matches main.py's default (Arm A used it); the sampler is
+  # stochastic (s_churn=5.0), so the seed must match for a determinism check.
+  "$PY" "$HERE/emrdm_infer_scene.py" \
     --emrdm "$EMRDM" --ckpt "$CKPT" --root "$ROOT" \
-    --season "$season" --scene "$scene" --tf32 on --seed 0 --save-preds \
+    --season "$season" --scene "$scene" --tf32 on --seed 3407 --save-preds \
     --out-dir "$OUT/${season}_${scene}" >> "$OUT/run.log" 2>&1 \
     || { echo "FAILED $season $scene" | tee -a "$OUT/run.log"; }
 done

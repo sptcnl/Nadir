@@ -9,7 +9,7 @@ set -uo pipefail
 OUT="${1:-$HOME/logs/b1_h1}"
 EMRDM="$HOME/emrdm/EMRDM"; CKPT="$HOME/emrdm/artifacts/sentinel/last.ckpt"
 ROOT="$HOME/data/sen12mscr"; PY="$HOME/emrdm/venv/bin/python"
-S=/mnt/c/Users/kimma/Desktop/Nadir/scripts/reeval/emrdm_infer_scene.py
+S="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/emrdm_infer_scene.py"
 mkdir -p "$OUT"
 export WANDB_MODE=offline
 

@@ -300,6 +300,17 @@ The project's contribution is deliberately located elsewhere:
      others likewise report point values with no seed/variance disclosure.
    The audit itself — quantifying these and declaring Nadir's own choices in
    `protocol.md` — is a deliverable independent of our model.
+
+   **Audit summary — hypothesis → measurement → verdict** (as of
+   2026-07-20; EMRDM released weights, 9-scene 7,116-patch set, 3 seeds):
+
+   | Convention | Hypothesis → Measurement → Verdict |
+   |---|---|
+   | **S1 VH clip** (−25 vs −32.5 dB) | *Does one clip constant move SAM more than the 0.527° DB-CR↔EMRDM gap?* → paired VHeff over 3 seeds = **+0.831°** actual / **+0.777°** season-reweighted, seed sd 0.012° → **SUPPORTED** — cross-paper SAM ranking not meaningful without protocol disclosure. |
+   | **Stochastic sampler + seed** (`s_churn=5.0`) | *Is a single reported SAM well-defined?* → SAM varies **≈0.014°** across seeds (Gate 0 and H1 agree) → **METHODOLOGICAL FINDING** — single point values without seed/variance are under-specified. |
+   | **SSIM window** (pytorch_ssim gauss-11 vs skimage uniform-7) | *Are cross-implementation SSIMs comparable?* → per-patch Δ up to **0.06**, aggregate Δ **0.0145** (> published ~0.02 margins) → **NOT COMPARABLE** (warning) — dual-report or declare the implementation. |
+   | **TF32** (on/off, undeclared) | *Does TF32 threaten the SAM gate?* → ΔSAM **0.0017°** aggregate → **IMMATERIAL** (rejected as a confound) — but only knowable because measured. |
+
 2. **Evaluation protocol:** mask-split (full/cloud/clear) reporting of
    SAM-first metrics. Published tables (incl. EMRDM's) report full-image
    averages, which §2's own logic says can hide clear-pixel copying.
