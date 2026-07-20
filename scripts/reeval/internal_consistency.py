@@ -86,8 +86,13 @@ def main() -> None:
         passed = d <= limit
         if gated:
             ok &= passed
-        tag = "PASS" if passed else ("FAIL" if gated else "OVER-SANITY")
-        kind = "gated" if gated else "recorded"
+            tag = "PASS" if passed else "FAIL"
+            kind = "gated"
+        else:
+            # SSIM is EXCLUDED (implementations differ by design, pre-registered
+            # in 3b); recorded with a sanity bound, never a pass/fail target.
+            tag = "EXCLUDED" if passed else "EXCLUDED-OVER-SANITY"
+            kind = "not comparable"
         result["metrics"][m] = {"emrdm": a, "nadir": b, "abs_delta": d,
                                 "limit": limit, "gated": gated, "pass": passed}
         print(f"{m:6s} {a:13.6f} {b:14.6f} {d:10.6f} {limit:7.3f}  {tag} ({kind})")

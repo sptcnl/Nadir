@@ -287,23 +287,35 @@ predictions (all 9 scenes, 7,116 patches pooled per-patch):
 | SAM | 5.651574° | 5.651177° | **0.000397°** | 0.05 | PASS (gated) |
 | PSNR | 31.467209 | 31.467423 | **0.000214** | 0.10 | PASS (gated) |
 | MAE | 0.019397 | 0.019396 | **0.000001** | 0.001 | PASS (gated) |
-| SSIM | 0.919048 | 0.904503 | 0.014545 | 0.05 | recorded (not gated) |
+| SSIM | 0.919048 | 0.904503 | 0.014545 | — | **EXCLUDED — not comparable** |
 
 The three gated (identical-formula) metrics agree with **>100× margin**
 (SAM Δ 0.0004° vs 0.05° tolerance). **Verdict: harness == EMRDM code at full
 pipeline scale.**
 
-**SSIM handling (transparent note).** The comparator initially gated SSIM at
-±0.005 — a script bug: that ±0.005 is the §3 *paper-reproduction* tolerance
-(same SSIM implementation), wrongly applied to a *cross-implementation*
-comparison. Corrected to the **3b pre-registration** (`compare_raw.py`,
-committed 2026-07-17): SSIM recorded-not-gated with a 0.05 sanity bound,
-because theirs (`pytorch_ssim`, gaussian 11×11) and ours (skimage, uniform
-7×7) differ *by design* (§2.3, ~0.06 per-patch). The aggregate Δ 0.0145 sits
-under the 0.05 sanity bound — the expected, pre-quantified implementation
-difference, not a harness fault. This is a correction to the pre-registered
-convention, **not** a post-hoc tolerance widening (no gated tolerance was
-changed).
+**SSIM is EXCLUDED from the comparison — it is not a comparison target, not a
+"pass".** The two SSIM implementations are different windows *by design*
+(theirs `pytorch_ssim` gaussian 11×11; ours skimage uniform 7×7), so their
+outputs are not expected to match and comparing them is meaningless. This
+exclusion is **pre-registered**, proven by git to precede this run (which is
+the *only* thing that makes the exclusion legitimate rather than a failing
+metric explained away):
+
+| Item | Commit | Timestamp (KST) |
+|---|---|---|
+| 3b gate script — `GATED={SAM,PSNR,MAE,RMSE}`, SSIM sanity-only, comment *"recorded, not gated (different implementations by design)"* | `e15e85a` | 2026-07-16 22:52:05 |
+| 3b doc gate §3.1 — SSIM row naming *skimage uniform-7 vs pytorch_ssim gaussian-11* | `c38c289` | 2026-07-16 22:41:34 |
+| **Gate 1 run** (`internal_consistency.json` written) | — | **2026-07-20 13:11:04** |
+
+Pre-registration precedes the run by **~3.6 days**, with the technical
+rationale (not just a timestamp) recorded in both commits. The
+`internal_consistency.py` script had wrongly *gated* SSIM at ±0.005 — that
+±0.005 is the §3 *paper-reproduction* tolerance (same implementation, does
+not apply cross-implementation); the script failed to follow the 3b
+pre-registration. Correcting the script to the pre-registration is
+justified; **no gated tolerance was changed**, and SSIM is recorded (Δ
+0.0145, consistent with the pre-quantified ~0.06 per-patch difference) as a
+datum, not scored.
 
 **What Gate 1 adds over 3b (one line).** 3b compared raw (no-model)
 cloudy-vs-clear metrics; Gate 1 compares metrics on **model predictions** —
