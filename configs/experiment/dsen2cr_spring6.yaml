@@ -1,0 +1,40 @@
+# @package _global_
+# DSen2-CR baseline training on the single spring-6 scene (700 triplets).
+# Goal: prove the training pipeline runs and converges — NOT SOTA. Overfitting
+# is expected and acceptable (one scene). See protocol.md §4.2.
+#
+#   python -m nadir.train +experiment=dsen2cr_spring6
+#
+# Data lives in WSL ext4; reached from Windows via the \\wsl.localhost UNC path.
+# train/val = patch-level split within spring-6 (convergence monitor only,
+# leaks — see _build_patch_split); headline eval is the separate 9-scene test
+# root, per-season (scripts/reeval/eval_per_season.py).
+
+data:
+  train_root: '\\wsl.localhost\Ubuntu-24.04\home\sptcnl\data\sen12mscr_train'
+  test_root: '\\wsl.localhost\Ubuntu-24.04\home\sptcnl\data\sen12mscr'
+  split:
+    strategy: patch
+    val_fraction: 0.1
+    split_seed: 42
+  loader:
+    num_workers: 0   # UNC/9p reads are the bottleneck; workers add little
+
+train:
+  epochs: 60          # single scene; watch W&B loss for convergence/plateau
+  batch_size: 4
+  grad_checkpointing: true
+  log:
+    every_steps: 20
+    image_grid_samples: 4
+
+eval:
+  lpips_net: alex
+
+wandb:
+  # offline: this machine is not `wandb login`-ed; curves are written under
+  # wandb/ and can be `wandb sync`-ed later. Override wandb.mode=online after
+  # logging in if live logging is wanted.
+  mode: offline
+  tags: [dsen2cr, baseline, spring6, subset, overfit-ok]
+  notes: "DSen2-CR baseline, spring-6 only (700 patches) — pipeline+convergence proof, not SOTA"

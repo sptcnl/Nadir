@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import random
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -56,18 +57,36 @@ def _derive_pair(s1_path: Path, season: str, scene: str, patch: str) -> TripletP
     )
 
 
-def scan_triplets(root: Path) -> list[TripletPaths]:
-    """Discover complete triplets under root; incomplete ones raise."""
+def scan_triplets(root: Path, strict: bool = True) -> list[TripletPaths]:
+    """Discover complete triplets under root.
+
+    strict=True (default): an incomplete triplet (a missing S2/S2_cloudy pair)
+    raises — the integrity check for data we expect to be whole. strict=False:
+    incomplete triplets are skipped with a one-line warning and a count — used
+    for real SEN12MS-CR data with a KNOWN gap (summer-73's clear targets are
+    unrecoverable from the corrupt mirror; see emrdm_reevaluation.md §2.1), so
+    the dataset yields only the complete triplets, matching EMRDM's loader.
+    """
     triplets: list[TripletPaths] = []
+    skipped = 0
     for s1_path in sorted(root.glob("*_s1/s1_*/*.tif")):
         m = _FILENAME_RE.match(s1_path.name)
         if m is None:
             raise ValueError(f"unexpected S1 filename: {s1_path}")
         triplet = _derive_pair(s1_path, m.group(1), m.group(2), m.group(3))
-        for path in (triplet.s2, triplet.s2_cloudy):
-            if not path.exists():
-                raise FileNotFoundError(f"incomplete triplet, missing {path}")
+        missing = [p for p in (triplet.s2, triplet.s2_cloudy) if not p.exists()]
+        if missing:
+            if strict:
+                raise FileNotFoundError(f"incomplete triplet, missing {missing[0]}")
+            skipped += 1
+            continue
         triplets.append(triplet)
+    if skipped:
+        warnings.warn(
+            f"scan_triplets: skipped {skipped} incomplete triplet(s) under {root} "
+            "(strict=False)",
+            stacklevel=2,
+        )
     if not triplets:
         raise FileNotFoundError(f"no SEN12MS-CR patches found under {root}")
     return triplets
@@ -95,9 +114,10 @@ class Sen12MSCRDataset(Dataset):
         rois: list[str] | None = None,
         mask_model: CloudMaskModel | None = None,
         augment: bool = False,
+        strict: bool = True,
     ) -> None:
         self.root = Path(root)
-        all_triplets = scan_triplets(self.root)
+        all_triplets = scan_triplets(self.root, strict=strict)
         if rois is not None:
             wanted = set(rois)
             self.triplets = [t for t in all_triplets if t.roi in wanted]
@@ -143,8 +163,53 @@ class Sen12MSCRDataset(Dataset):
         }
 
 
-def build_datasets(cfg: DictConfig) -> dict[str, Sen12MSCRDataset]:
-    """Construct train/val/test datasets with a leak-checked geographic split."""
+def _build_patch_split(cfg: DictConfig) -> dict:
+    """Patch-level train/val split within `train_root`, test from `test_root`.
+
+    Used when the training data is a single scene (spring-6 baseline): an
+    ROI-level split cannot divide one scene, so train/val are split at the
+    PATCH level within it. NOTE: patches of one scene overlap spatially, so
+    this train/val split leaks — val metrics are optimistic and used ONLY to
+    monitor convergence, never as the headline result. The headline evaluation
+    is the geographically-disjoint `test_root` (per-season), run separately.
+    """
+    from torch.utils.data import Subset
+
+    mask_model = ThresholdCloudMask(
+        thin=cfg.data.mask.thin, thick=cfg.data.mask.thick, shadow=cfg.data.mask.shadow
+    )
+    train_root, test_root = Path(cfg.data.train_root), Path(cfg.data.test_root)
+    full_aug = Sen12MSCRDataset(
+        train_root, mask_model=mask_model, augment=cfg.data.augment
+    )
+    full_noaug = Sen12MSCRDataset(train_root, mask_model=mask_model, augment=False)
+    n = len(full_aug)
+    idx = list(range(n))
+    random.Random(cfg.data.split.split_seed).shuffle(idx)
+    n_val = max(1, round(n * cfg.data.split.val_fraction))
+    val_idx, train_idx = idx[:n_val], idx[n_val:]
+    # strict=False: the 9-scene test root has a KNOWN gap (summer-73's clear
+    # targets are unrecoverable, §2.1) — skip its incomplete triplets, keep the
+    # 7,116 complete ones (matches EMRDM's loader).
+    test_ds = Sen12MSCRDataset(
+        test_root, mask_model=mask_model, augment=False, strict=False
+    )
+    return {
+        "train": Subset(full_aug, train_idx),
+        "val": Subset(full_noaug, val_idx),
+        "test": test_ds,
+    }
+
+
+def build_datasets(cfg: DictConfig) -> dict:
+    """Construct train/val/test datasets.
+
+    strategy 'roi' (default): leak-checked geographic (per-ROI) split of one
+    root. strategy 'patch': patch-level train/val within `train_root` + a
+    separate `test_root` (single-scene baseline; see `_build_patch_split`).
+    """
+    if getattr(cfg.data.split, "strategy", "roi") == "patch":
+        return _build_patch_split(cfg)
     root = Path(cfg.data.root)
     all_rois = sorted({t.roi for t in scan_triplets(root)})
     splits = split_rois(
