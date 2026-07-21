@@ -116,8 +116,30 @@ def download(archive: str, dest_dir: Path) -> Path:
         raise
     total = response.headers.get("Content-Length")
     total_mb = f"{int(total) / 1e6:,.0f} MB" if total else "unknown size"
-    mode = "ab" if offset and response.status == 206 else "wb"
-    done = offset if mode == "ab" else 0
+    # Resume policy — NEVER truncate an existing partial (that caused a
+    # 16GB<->0 oscillation when a flaky server intermittently answered a Range
+    # request with 200 instead of 206):
+    #   offset>0, 206  -> server honored Range: append the tail.
+    #   offset>0, 200  -> server ignored Range and streams the WHOLE file from
+    #                     byte 0: skip the bytes we already have, then append,
+    #                     so on-disk progress stays monotonic.
+    #   offset==0       -> fresh download.
+    if offset and response.status == 206:
+        mode, done = "ab", offset
+    elif offset and response.status == 200:
+        print(f"{archive}: server returned 200 to a Range request; "
+              f"skipping {offset / 1e6:,.0f} MB to preserve the partial", flush=True)
+        to_skip = offset
+        while to_skip > 0:
+            chunk = response.read(min(_CHUNK, to_skip))
+            if not chunk:  # server sent fewer bytes than our partial — restart clean
+                mode, done, offset = "wb", 0, 0
+                break
+            to_skip -= len(chunk)
+        else:
+            mode, done = "ab", offset
+    else:
+        mode, done = "wb", 0
     print(f"{archive}: downloading ({total_mb}, resuming at {offset / 1e6:,.0f} MB)")
     with open(dest, mode) as fh:
         while True:
