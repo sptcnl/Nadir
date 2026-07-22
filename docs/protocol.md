@@ -175,30 +175,43 @@ artifact of reporting an over-trained checkpoint:
 
 **Honest reading (capability proof, not a competitive model):**
 1. **Pipeline + convergence: demonstrated** (above).
-2. **The PSNR/MAE-up, SAM-down divergence is REAL — not an overfit artifact,
-   and present in-domain.** Every checkpoint beats do-nothing on PSNR/MAE yet is
-   worse on SAM, *including in-domain spring* and *including the pre-overfit
-   best-val checkpoint* (ep10 is in fact the WORST on held-out SAM, +3.31°). So
-   this is not "we picked the overfit checkpoint" and not "OOD domain shift" —
-   it is a property of this model+loss: L1-based CARL minimizes per-band
-   absolute error (PSNR↑, MAE↓) without constraining band *ratios*, so the
-   model improves pixel fidelity while enlarging the spectral angle past the
-   cloudy input. This is a concrete, in-house demonstration of the SAM-first
-   thesis: an L1/PSNR-selected model looks like it works (+2 dB) while
-   corrupting spectra. **Cause is L1-CARL + the placeholder brightness
-   cloud-mask + single-scene training — NOT a claim about DSen2-CR proper**
-   (the paper reports SAM ~8–9 on full data with s2cloudless masks).
-3. **Leaky val is anti-correlated with held-out quality here.** Held-out
-   PSNR/MAE/SAM all improve monotonically ep10→ep59, while leaky-val SAM is
-   *best* at ep10. Reporting ep59 is therefore the best-case held-out
-   checkpoint (not cherry-picked-bad); the lesson recorded for Phase 2 is that
-   a spatially-leaking val cannot drive checkpoint selection — a geographically
-   disjoint val is required.
-4. **In-domain > out-of-domain** (spring PSNR/SAM/SSIM beat summer/fall/winter):
+2. **The PSNR/MAE-up, SAM-down divergence is REAL — not an overfit artifact and
+   not an OOD artifact.** Two controls rule out both easy explanations:
+   - *not OOD:* the regression holds on the **in-domain spring** held-out set
+     (SAM 15.62 vs no-model 13.71), where there is no domain shift — so it is
+     not "summer/fall/winter are just far from the training season";
+   - *not overfitting:* it holds at the **pre-overfit best-val checkpoint**
+     (ep10 is in fact the WORST on held-out SAM, +3.31°) — so it is not "we
+     reported the over-trained ep59".
+3. **Cause, strictly scoped.** The divergence is a property of *this
+   configuration*: **L1-based CARL** (minimizes per-band absolute error →
+   PSNR↑, MAE↓, but does **not** constrain band *ratios*) **+ the placeholder
+   brightness cloud-mask + single-scene training**. It is the "in-this-setup"
+   PSNR↑/SAM↑ behaviour and **NOT a claim about DSen2-CR proper**, which reports
+   SAM ~8–9 on the full dataset with s2cloudless masks. Do not generalize it
+   beyond this baseline.
+4. **Thesis connection (why this matters for the project).** An L1 objective
+   improves per-pixel brightness while corrupting inter-band ratios; PSNR/MAE
+   reward it (+2 dB) while SAM correctly flags the spectral damage. **Read on
+   PSNR alone, this model looks like a success — it is not.** This is the
+   project's own first-baseline, in-house evidence for the standing decision to
+   treat **SAM as a first-class metric**: the concrete "PSNR alone deceives"
+   datum the protocol was built to catch.
+5. **Separate finding — spatially-leaking validation flips checkpoint
+   selection (a real geographic-leakage case).** The patch-level val (patches
+   of the same spring-6 scenes) is *anti-correlated* with held-out SAM: leaky
+   val is best at ep10, yet ep10 is the worst held-out checkpoint, while
+   held-out PSNR/MAE/SAM improve monotonically ep10→ep59. Selecting "best val"
+   would have picked exactly the wrong checkpoint. (Reporting ep59 is thus the
+   best-case held-out checkpoint, not cherry-picked-bad.) **Phase-2 lesson,
+   recorded:** checkpoint selection / early stopping requires a
+   *geographically-disjoint* val split; a spatially-leaking val is worse than
+   useless here because it inverts the ranking.
+6. **In-domain > out-of-domain** (spring PSNR/SAM/SSIM beat summer/fall/winter):
    the single-season generalization limit is real and visible; the per-season
    split was necessary — pooled numbers would have hidden both this and the
    in-domain SAM regression.
-5. **Far from SOTA** (SAM 16° vs EMRDM 5.27°) — expected for one scene / 60
+7. **Far from SOTA** (SAM 16° vs EMRDM 5.27°) — expected for one scene / 60
    epochs; performance was never the goal.
 
 **Retraction (2026-07-22).** An earlier draft of this section claimed the
@@ -211,6 +224,12 @@ Different sample and different harness; §3.1-3b already forbids this exact
 comparison until a matched-sample Step-5 run. The harness IS validated — by the
 §3b per-patch gate (same scene, same patches, agreement ≤0.01° SAM), which is
 the rigorous check; this loose full-set near-coincidence is not.
+
+The premature original (both the "SAM-first thesis" declaration made before the
+checkpoint sweep, and this withdrawn harness cross-check) is deliberately left
+in git history — commit that recorded it, then `6ea4616` that investigated and
+corrected it — rather than rewritten, so the reasoning trail (claim → control →
+correction) stays auditable.
 
 **Rejected alternative (recorded 2026-07-16):** a val reduction to 1 scene
 per season (~11 GB instead of ~27 GB) was proposed to protect the C:-drive
