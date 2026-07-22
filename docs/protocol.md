@@ -145,11 +145,13 @@ gradient checkpointing, CARL loss, W&B offline. **Goal was pipeline-proof +
 convergence, NOT SOTA** — read every number below in that light.
 
 **Convergence (val = spring-6 patch holdout; leaks spatially → optimistic):**
-SAM 8.75→7.53 (epoch 9) and PSNR 28.58→29.33 by epoch ~9, SSIM 0.77→0.87 by
-epoch 59. The pipeline trains and the model learns; SAM/PSNR then drift back
-(epoch 59 SAM 8.56) — overfitting on 700 patches, as expected/accepted.
+val SAM 8.75 (ep0) → 6.87 (ep10, minimum) → 8.56 (ep59); val PSNR 28.6 → 29.8
+(ep12) → 28.1 (ep59). The pipeline trains and the model learns, then the leaky
+val drifts back after ~ep20. Pipeline-proof + convergence: **demonstrated.**
+NB: this val is spatially-leaking and, as the checkpoint sweep below shows, is
+*anti-correlated* with held-out SAM — it must NOT be used to select checkpoints.
 
-**Held-out evaluation (9-scene test, `eval_per_season.py`, final epoch-59
+**Held-out evaluation (9-scene test, `eval_per_season.py`, epoch-59
 checkpoint), model vs the do-nothing baseline (pred := cloudy input):**
 
 | Season (n) | PSNR model/none | SAM model/none | SSIM model/none | MAE model/none |
@@ -160,28 +162,55 @@ checkpoint), model vs the do-nothing baseline (pred := cloudy input):**
 | winter (1567, OOD) | 20.07 / 18.28 | 16.39 / 14.55 | 0.620 / 0.610 | 0.085 / 0.120 |
 | **ALL (7116)** | **20.35 / 18.38** | **16.00 / 13.71** | **0.620 / 0.633** | **0.080 / 0.117** |
 
-**Honest reading (this is a capability proof, not a competitive model):**
-1. **Pipeline + convergence: demonstrated.** End-to-end training on real data,
-   metrics improve from epoch 0, checkpoints + eval run.
-2. **The model beats do-nothing on PSNR (+1.96 dB) and MAE, but is WORSE on
-   SAM (16.0° vs 13.7°)** — it lowers per-pixel brightness error while
-   *distorting inter-band ratios more than the cloudy input does*. This is a
-   concrete, in-house demonstration of the project's SAM-first thesis: PSNR
-   alone calls this a success; SAM reveals spectral corruption. (Likely
-   causes: the placeholder brightness cloud-mask mis-weights CARL, and hard
-   overfitting to one scene — not a claim about DSen2-CR proper.)
-3. **In-domain > out-of-domain** on PSNR/SAM/SSIM (spring beats summer/fall/
-   winter) — the single-season generalization limit is visible; the per-season
-   split was necessary to see it (pooled numbers would have hidden it).
-4. **Severe overfitting:** leaky-val PSNR ~29 vs held-out test PSNR ~20.7 (the
-   held-out spring scenes are different ROIs than spring-6).
-5. **Far from SOTA** (SAM 16° vs EMRDM 5.27°) — expected for one scene / 60
-   epochs / overfit; performance was never the goal.
-   Cross-check: the do-nothing SAM (13.71°, our harness) ≈ EMRDM's logged
-   `raw_SAM` 13.37° — re-validates the harness once more.
+**Checkpoint sweep on the in-domain (spring) held-out set** (`investigate_sam.py`,
+n=3983) — run to test whether the SAM regression is a real property or merely an
+artifact of reporting an over-trained checkpoint:
 
-Not cherry-picked: the final (epoch-59) checkpoint is reported; earlier
-checkpoints (val peaked ~epoch 9) exist if better generalization is wanted.
+| Checkpoint | SAM | PSNR | MAE | vs no-model SAM |
+|---|---|---|---|---|
+| no-model (cloudy) | 13.71 | 18.72 | 0.123 | — |
+| epoch 10 (best leaky-val) | 17.02 | 19.57 | 0.093 | **+3.31 worse** |
+| epoch 20 | 15.95 | 19.88 | 0.091 | +2.24 worse |
+| epoch 59 (reported) | 15.62 | 20.71 | 0.080 | +1.91 worse |
+
+**Honest reading (capability proof, not a competitive model):**
+1. **Pipeline + convergence: demonstrated** (above).
+2. **The PSNR/MAE-up, SAM-down divergence is REAL — not an overfit artifact,
+   and present in-domain.** Every checkpoint beats do-nothing on PSNR/MAE yet is
+   worse on SAM, *including in-domain spring* and *including the pre-overfit
+   best-val checkpoint* (ep10 is in fact the WORST on held-out SAM, +3.31°). So
+   this is not "we picked the overfit checkpoint" and not "OOD domain shift" —
+   it is a property of this model+loss: L1-based CARL minimizes per-band
+   absolute error (PSNR↑, MAE↓) without constraining band *ratios*, so the
+   model improves pixel fidelity while enlarging the spectral angle past the
+   cloudy input. This is a concrete, in-house demonstration of the SAM-first
+   thesis: an L1/PSNR-selected model looks like it works (+2 dB) while
+   corrupting spectra. **Cause is L1-CARL + the placeholder brightness
+   cloud-mask + single-scene training — NOT a claim about DSen2-CR proper**
+   (the paper reports SAM ~8–9 on full data with s2cloudless masks).
+3. **Leaky val is anti-correlated with held-out quality here.** Held-out
+   PSNR/MAE/SAM all improve monotonically ep10→ep59, while leaky-val SAM is
+   *best* at ep10. Reporting ep59 is therefore the best-case held-out
+   checkpoint (not cherry-picked-bad); the lesson recorded for Phase 2 is that
+   a spatially-leaking val cannot drive checkpoint selection — a geographically
+   disjoint val is required.
+4. **In-domain > out-of-domain** (spring PSNR/SAM/SSIM beat summer/fall/winter):
+   the single-season generalization limit is real and visible; the per-season
+   split was necessary — pooled numbers would have hidden both this and the
+   in-domain SAM regression.
+5. **Far from SOTA** (SAM 16° vs EMRDM 5.27°) — expected for one scene / 60
+   epochs; performance was never the goal.
+
+**Retraction (2026-07-22).** An earlier draft of this section claimed the
+do-nothing SAM (13.71°, our harness) "≈ EMRDM's logged `raw_SAM` 13.37° —
+re-validates the harness." **That claim is withdrawn: the two are not
+comparable.** 13.37° is EMRDM's raw baseline over their full 7,899-patch set
+computed with *their* preprocessing/harness; 13.71° is ours over 7,116 patches
+(the whole summer scene-73 — 783 patches — is dropped, §2.1) with *our* harness.
+Different sample and different harness; §3.1-3b already forbids this exact
+comparison until a matched-sample Step-5 run. The harness IS validated — by the
+§3b per-patch gate (same scene, same patches, agreement ≤0.01° SAM), which is
+the rigorous check; this loose full-set near-coincidence is not.
 
 **Rejected alternative (recorded 2026-07-16):** a val reduction to 1 scene
 per season (~11 GB instead of ~27 GB) was proposed to protect the C:-drive
