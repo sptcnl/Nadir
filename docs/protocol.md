@@ -125,6 +125,64 @@ here. If a fuller train set is ever needed, a pre-gap summer scene (e.g. one
 of {115, 121, 132, 133}, which decode cleanly from the prefix) can be added —
 but that is a new declared selection, not taken opportunistically now.
 
+**Realized training set = spring-6 ONLY (further reduced, 2026-07-21).** After
+spring (all 3 modalities) and fall (s1 + clear) downloaded, the TUM server
+throughput collapsed to ~0.5 MB/s (10× slower; throttling after sustained
+transfer — NOT corruption: range probes at 16/17/20 GB of fall_s2_cloudy all
+returned 206 with data). At that rate the remaining fall_s2_cloudy + winter
+(~58 GB) would take ~30 h, breaking the one-day goal. Since **spring-6 alone
+(700 complete triplets) already suffices to prove the pipeline trains**, fall
+(incomplete: no cloudy) and winter (not started) were set aside — resumable
+later via the fixed downloader (`--reclaim-pause`, HTTP-200 truncation fix)
+when the server recovers. Training therefore ran on **spring-6, 700 triplets,
+patch-split 630 train / 70 val** (val leaks spatially — convergence monitor
+only; headline eval is the geographically-disjoint 9-scene test).
+
+### 4.3 DSen2-CR baseline — training result (2026-07-22)
+
+Ran on spring-6 (700 triplets, 630/70 patch-split), 60 epochs, bf16 +
+gradient checkpointing, CARL loss, W&B offline. **Goal was pipeline-proof +
+convergence, NOT SOTA** — read every number below in that light.
+
+**Convergence (val = spring-6 patch holdout; leaks spatially → optimistic):**
+SAM 8.75→7.53 (epoch 9) and PSNR 28.58→29.33 by epoch ~9, SSIM 0.77→0.87 by
+epoch 59. The pipeline trains and the model learns; SAM/PSNR then drift back
+(epoch 59 SAM 8.56) — overfitting on 700 patches, as expected/accepted.
+
+**Held-out evaluation (9-scene test, `eval_per_season.py`, final epoch-59
+checkpoint), model vs the do-nothing baseline (pred := cloudy input):**
+
+| Season (n) | PSNR model/none | SAM model/none | SSIM model/none | MAE model/none |
+|---|---|---|---|---|
+| spring (3983, in-domain) | 20.71 / 18.72 | 15.62 / 13.71 | 0.647 / 0.654 | 0.080 / 0.123 |
+| summer (782, OOD) | 19.55 / 17.39 | 16.67 / 12.54 | 0.557 / 0.619 | 0.074 / 0.098 |
+| fall (784, OOD) | 19.85 / 17.88 | 16.45 / 13.21 | 0.550 / 0.588 | 0.074 / 0.095 |
+| winter (1567, OOD) | 20.07 / 18.28 | 16.39 / 14.55 | 0.620 / 0.610 | 0.085 / 0.120 |
+| **ALL (7116)** | **20.35 / 18.38** | **16.00 / 13.71** | **0.620 / 0.633** | **0.080 / 0.117** |
+
+**Honest reading (this is a capability proof, not a competitive model):**
+1. **Pipeline + convergence: demonstrated.** End-to-end training on real data,
+   metrics improve from epoch 0, checkpoints + eval run.
+2. **The model beats do-nothing on PSNR (+1.96 dB) and MAE, but is WORSE on
+   SAM (16.0° vs 13.7°)** — it lowers per-pixel brightness error while
+   *distorting inter-band ratios more than the cloudy input does*. This is a
+   concrete, in-house demonstration of the project's SAM-first thesis: PSNR
+   alone calls this a success; SAM reveals spectral corruption. (Likely
+   causes: the placeholder brightness cloud-mask mis-weights CARL, and hard
+   overfitting to one scene — not a claim about DSen2-CR proper.)
+3. **In-domain > out-of-domain** on PSNR/SAM/SSIM (spring beats summer/fall/
+   winter) — the single-season generalization limit is visible; the per-season
+   split was necessary to see it (pooled numbers would have hidden it).
+4. **Severe overfitting:** leaky-val PSNR ~29 vs held-out test PSNR ~20.7 (the
+   held-out spring scenes are different ROIs than spring-6).
+5. **Far from SOTA** (SAM 16° vs EMRDM 5.27°) — expected for one scene / 60
+   epochs / overfit; performance was never the goal.
+   Cross-check: the do-nothing SAM (13.71°, our harness) ≈ EMRDM's logged
+   `raw_SAM` 13.37° — re-validates the harness once more.
+
+Not cherry-picked: the final (epoch-59) checkpoint is reported; earlier
+checkpoints (val peaked ~epoch 9) exist if better generalization is wanted.
+
 **Rejected alternative (recorded 2026-07-16):** a val reduction to 1 scene
 per season (~11 GB instead of ~27 GB) was proposed to protect the C:-drive
 90% budget line. **Rejected on protocol-integrity grounds:** letting a disk

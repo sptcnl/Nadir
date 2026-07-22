@@ -50,6 +50,11 @@ def main() -> None:
     parser.add_argument("--out", required=True)
     parser.add_argument("--lpips-net", default="alex")
     parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument(
+        "--no-model", action="store_true",
+        help="score the cloudy input against clear (pred := cloudy) — the "
+        "do-nothing baseline, to check the model actually beats it",
+    )
     args = parser.parse_args()
 
     device = resolve_device("cuda")
@@ -77,7 +82,8 @@ def main() -> None:
             s2c = batch["s2_cloudy"].to(device)
             clear = batch["s2_clear"].to(device)
             mask = batch["mask"].to(device)
-            pred = model(s2c, s1)
+            # --no-model: pred = cloudy input (the do-nothing reference).
+            pred = s2c if args.no_model else model(s2c, s1)
             # per-sample metrics so we can bucket by season
             for i in range(s1.shape[0]):
                 season = SEASON_OF[batch["roi"][i].split("_")[0]]
